@@ -14,7 +14,6 @@ ${PROGRAM}: config ${OBJS}
 
 bt.o:             bt.cpp npbparams.hpp
 	${CCOMPILE} bt.cpp
-#	${CCOMPILE} --offload-arch=gfx1101 -mllvm --amdgpu-mode-register=1 bt.cpp
 clean:
 	- rm -f *.o *~ mputil*
 	- rm -f  npbparams.hpp core
