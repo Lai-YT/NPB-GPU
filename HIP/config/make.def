@@ -26,8 +26,7 @@ NO_NPB_CPP_CONVENTIONS = -DDO_NOT_ALLOCATE_ARRAYS_WITH_DYNAMIC_MEMORY_AND_AS_SIN
 # HIP path
 # ---------------------------------------------------------------------------
 ROCM_PATH=/opt/rocm-6.3.1/
-HIP_COMPILER=$(ROCM_PATH)bin/hipcc
-HIP_INCLUDE_PATH=$(ROCM_PATH)include/
+HIP_COMPILER=$(ROCM_PATH)/bin/hipcc
 
 # ---------------------------------------------------------------------------
 # CC is the compiler used for HIP programs
@@ -48,17 +47,17 @@ CC = ${HIP_COMPILER} -fopenmp -O3
 #############
 # INTEL GPU #
 #############
-# CC = /mnt/Data/studying/programming/include/chipStar-v1.2.1/build/bin/hipcc vector_add.hip.cpp -o vector_add
-
-# ---------------------------------------------------------------------------
-# running NPB on Intel GPU using ChipStar compiler
-# ---------------------------------------------------------------------------
+# INTEL_ONEAPI=~/intel-stuff/intel/oneapi/
+# INTEL_CHIPSTAR=~/intel-stuff/chipStar-v1.2.1/
+# source ${INTEL_ONEAPI}/setvars.sh --force
 # export HIP_PLATFORM=chipstar
 # export CHIP_DEVICE_TYPE=GPU
 # export CHIP_BE=level0
-# export PATH=/mnt/Data/studying/programming/include/chipStar-v1.2.1/build/bin:$PATH
-# export LD_LIBRARY_PATH=/mnt/Data/studying/programming/include/chipStar-v1.2.1/build/lib:$LD_LIBRARY_PATH
-# bin/ep.S
+# export PATH=${INTEL_CHIPSTAR}/build/bin:$PATH
+# export LD_LIBRARY_PATH=${INTEL_CHIPSTAR}/build/lib:$LD_LIBRARY_PATH
+# export IGC_EnableDPEmulation=1
+# export OverrideDefaultFP64Settings=1
+# CC = ${INTEL_CHIPSTAR}/build/bin/hipcc
 
 # ---------------------------------------------------------------------------
 # in case HIP does not recognize nvcc path
