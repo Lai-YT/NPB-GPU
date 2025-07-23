@@ -203,23 +203,21 @@ int gpu_device_id;
 int total_devices;
 hipDeviceProp_t gpu_device_properties;
 extern __shared__ double extern_share_data[];
-
-namespace constants_device{
-	/* coefficients of the exact solution */
-	__constant__ double ce[13][5];
-	/* grid */
-	__constant__ double dxi, deta, dzeta;
-	__constant__ double tx1, tx2, tx3;
-	__constant__ double ty1, ty2, ty3;
-	__constant__ double tz1, tz2, tz3;	
-	/* dissipation */
-	__constant__ double dx1, dx2, dx3, dx4, dx5;
-	__constant__ double dy1, dy2, dy3, dy4, dy5;
-	__constant__ double dz1, dz2, dz3, dz4, dz5;
-	__constant__ double dssp;
-	/* newton-raphson iteration control parameters */
-	__constant__ double dt, omega;
-}
+// device constants
+// coefficients of the exact solution
+__device__ __constant__ double ce[13][5];
+// grid
+__device__ __constant__ double dxi, deta, dzeta;
+__device__ __constant__ double tx1, tx2, tx3;
+__device__ __constant__ double ty1, ty2, ty3;
+__device__ __constant__ double tz1, tz2, tz3;	
+// dissipation
+__device__ __constant__ double dx1, dx2, dx3, dx4, dx5;
+__device__ __constant__ double dy1, dy2, dy3, dy4, dy5;
+__device__ __constant__ double dz1, dz2, dz3, dz4, dz5;
+__device__ __constant__ double dssp;
+// newton-raphson iteration control parameters
+__device__ __constant__ double dt, omega;
 
 /* function prototypes */
 static void erhs_gpu();
@@ -710,8 +708,7 @@ __global__ static void erhs_gpu_kernel_1(double* frct,
 	if(i_j_k >= (nx*ny*nz)){
 		return;
 	}
-
-	using namespace constants_device;
+	
 	for(m=0;m<5;m++){frct(m,i,j,k)=0.0;}
 	zeta=(double)k/((double)(nz-1));
 	eta=(double)j/((double)(ny-1));
@@ -752,8 +749,7 @@ __global__ static void erhs_gpu_kernel_2(double* frct,
 	k=blockIdx.x+1;
 	j=blockIdx.y+1;
 	i=threadIdx.x;
-
-	using namespace constants_device;
+	
 	while(i < nx){
 		nthreads=nx-(i-threadIdx.x);
 		if(nthreads>blockDim.x){nthreads=blockDim.x;}
@@ -836,8 +832,7 @@ __global__ static void erhs_gpu_kernel_3(double* frct,
 	k=blockIdx.x+1;
 	i=blockIdx.y+1;
 	j=threadIdx.x;
-
-	using namespace constants_device;
+	
 	while(j<ny){ 
 		nthreads=ny-(j-threadIdx.x);
 		if(nthreads>blockDim.x){nthreads=blockDim.x;}
@@ -920,8 +915,7 @@ __global__ static void erhs_gpu_kernel_4(double* frct,
 	j=blockIdx.x+1;
 	i=blockIdx.y+1;
 	k=threadIdx.x;
-
-	using namespace constants_device;
+	
 	while(k<nz){
 		nthreads=(nz-(k-threadIdx.x));
 		if(nthreads>blockDim.x){nthreads=blockDim.x;}
@@ -1097,8 +1091,7 @@ __device__ static void exact_gpu_device(const int i,
 		const int ny,
 		const int nz){
 	int m;
-	double xi, eta, zeta;
-	using namespace constants_device;
+	double xi, eta, zeta;	
 	xi=(double)i/(double)(nx-1);
 	eta=(double)j/(double)(ny-1);
 	zeta=(double)k/(double)(nz-1);
@@ -1143,7 +1136,6 @@ __global__ static void jacld_blts_gpu_kernel(const int plane,
 	r43=4.0/3.0;
 	c1345=C1*C3*C4*C5;
 	c34=C3*C4;
-	using namespace constants_device;
 	/*
 	 * ---------------------------------------------------------------------
 	 * form the first block sub-diagonal
@@ -1376,8 +1368,7 @@ __global__ static void jacu_buts_gpu_kernel(const int plane,
 	i=plane-j-k+3;
 
 	if((i<1)||(i>(nx-2))||(j>(ny-2))){return;}
-
-	using namespace constants_device;
+	
 	r43=4.0/3.0;
 	c1345=C1*C3*C4*C5;
 	c34=C3*C4;
@@ -1854,8 +1845,6 @@ __global__ static void pintgr_gpu_kernel_1(const double* u,
 
 	i=blockIdx.x*(blockDim.x-1)+threadIdx.x+1;
 	j=blockIdx.y*(blockDim.x-1)+threadIdx.y+1;
-
-	using namespace constants_device;
 	/*
 	 * ---------------------------------------------------------------------
 	 * initialize
@@ -1899,8 +1888,6 @@ __global__ static void pintgr_gpu_kernel_2(const double* u,
 	k=blockIdx.y*(blockDim.x-1)+2;
 	kp=threadIdx.y;
 	ip=threadIdx.x;
-
-	using namespace constants_device;
 	/*
 	 * ---------------------------------------------------------------------
 	 * initialize
@@ -1943,8 +1930,6 @@ __global__ static void pintgr_gpu_kernel_3(const double* u,
 	k=blockIdx.y*(blockDim.x-1)+2;
 	kp=threadIdx.y;
 	jp=threadIdx.x;
-
-	using namespace constants_device;
 	/*
 	 * ---------------------------------------------------------------------
 	 * initialize
@@ -2258,8 +2243,7 @@ __global__ static void rhs_gpu_kernel_2(const double* u,
 	k=blockIdx.x+1;
 	j=blockIdx.y+1;
 	i=threadIdx.x;
-
-	using namespace constants_device;
+	
 	while(i<nx){
 		nthreads=nx-(i-threadIdx.x);
 		if(nthreads>blockDim.x){nthreads=blockDim.x;}
@@ -2359,8 +2343,7 @@ __global__ static void rhs_gpu_kernel_3(const double* u,
 	k=blockIdx.x+1;
 	i=blockIdx.y+1;
 	j=threadIdx.x;
-
-	using namespace constants_device;
+	
 	while(j<ny){
 		nthreads=ny-(j-threadIdx.x);
 		if(nthreads>blockDim.x){nthreads=blockDim.x;}
@@ -2460,8 +2443,7 @@ __global__ static void rhs_gpu_kernel_4(const double* u,
 	j=blockIdx.x+1;
 	i=blockIdx.y+1;
 	k=threadIdx.x;
-
-	using namespace constants_device;
+	
 	while(k<nz){
 		nthreads=(nz-(k-threadIdx.x));
 		if(nthreads>blockDim.x){nthreads=blockDim.x;}
@@ -2727,18 +2709,16 @@ __global__ static void setbv_gpu_kernel_3(double* u,
 }
 
 static void setcoeff_gpu(){
-	double dt=dt_host;
-	double omega=omega_host;
 	/* grid */
-	static double dxi, deta, dzeta;
-	static double tx1, tx2, tx3;
-	static double ty1, ty2, ty3;
-	static double tz1, tz2, tz3;	
+	static double dxi_host, deta_host, dzeta_host;
+	static double tx1_host, tx2_host, tx3_host;
+	static double ty1_host, ty2_host, ty3_host;
+	static double tz1_host, tz2_host, tz3_host;	
 	/* dissipation */
-	static double dx1, dx2, dx3, dx4, dx5;
-	static double dy1, dy2, dy3, dy4, dy5;
-	static double dz1, dz2, dz3, dz4, dz5;
-	static double dssp;	
+	static double dx1_host, dx2_host, dx3_host, dx4_host, dx5_host;
+	static double dy1_host, dy2_host, dy3_host, dy4_host, dy5_host;
+	static double dz1_host, dz2_host, dz3_host, dz4_host, dz5_host;
+	static double dssp_host;	
 	/*
 	 * ---------------------------------------------------------------------
 	 * local variables
@@ -2746,167 +2726,171 @@ static void setcoeff_gpu(){
 	 * set up coefficients
 	 * ---------------------------------------------------------------------
 	 */
-	dxi=1.0/(nx-1);
-	deta=1.0/(ny-1);
-	dzeta=1.0/(nz-1);
-	tx1=1.0/(dxi*dxi);
-	tx2=1.0/(2.0*dxi);
-	tx3=1.0/dxi;
-	ty1=1.0/(deta*deta);
-	ty2=1.0/(2.0*deta);
-	ty3=1.0/deta;
-	tz1=1.0/(dzeta*dzeta);
-	tz2=1.0/(2.0*dzeta);
-	tz3=1.0/dzeta;
+	dxi_host=1.0/(nx-1);
+	deta_host=1.0/(ny-1);
+	dzeta_host=1.0/(nz-1);
+	tx1_host=1.0/(dxi_host*dxi_host);
+	tx2_host=1.0/(2.0*dxi_host);
+	tx3_host=1.0/dxi_host;
+	ty1_host=1.0/(deta_host*deta_host);
+	ty2_host=1.0/(2.0*deta_host);
+	ty3_host=1.0/deta_host;
+	tz1_host=1.0/(dzeta_host*dzeta_host);
+	tz2_host=1.0/(2.0*dzeta_host);
+	tz3_host=1.0/dzeta_host;
 	/*
 	 * ---------------------------------------------------------------------
 	 * diffusion coefficients
 	 * ---------------------------------------------------------------------
 	 */
-	dx1=0.75;
-	dx2=dx1;
-	dx3=dx1;
-	dx4=dx1;
-	dx5=dx1;
-	dy1=0.75;
-	dy2=dy1;
-	dy3=dy1;
-	dy4=dy1;
-	dy5=dy1;
-	dz1=1.00;
-	dz2=dz1;
-	dz3=dz1;
-	dz4=dz1;
-	dz5=dz1;
+	dx1_host=0.75;
+	dx2_host=dx1_host;
+	dx3_host=dx1_host;
+	dx4_host=dx1_host;
+	dx5_host=dx1_host;
+	dy1_host=0.75;
+	dy2_host=dy1_host;
+	dy3_host=dy1_host;
+	dy4_host=dy1_host;
+	dy5_host=dy1_host;
+	dz1_host=1.00;
+	dz2_host=dz1_host;
+	dz3_host=dz1_host;
+	dz4_host=dz1_host;
+	dz5_host=dz1_host;
 	/*
 	 * ---------------------------------------------------------------------
 	 * fourth difference dissipation
 	 * ---------------------------------------------------------------------
 	 */
-	dssp=(max(max(dx1,dy1),dz1))/4.0;	 
-	/*
-	 * ---------------------------------------------------------------------
-	 * coefficients of the exact solution to the first pde
-	 * ---------------------------------------------------------------------
-	 */
-	double ce[13][5];
-	ce[0][0]=2.0;
-	ce[1][0]=0.0;
-	ce[2][0]=0.0;
-	ce[3][0]=4.0;
-	ce[4][0]=5.0;
-	ce[5][0]=3.0;
-	ce[6][0]=0.5;
-	ce[7][0]=0.02;
-	ce[8][0]=0.01;
-	ce[9][0]=0.03;
-	ce[10][0]=0.5;
-	ce[11][0]=0.4;
-	ce[12][0]=0.3;
-	/*
-	 * ---------------------------------------------------------------------
-	 * coefficients of the exact solution to the second pde
-	 * ---------------------------------------------------------------------
-	 */
-	ce[0][1]=1.0;
-	ce[1][1]=0.0;
-	ce[2][1]=0.0;
-	ce[3][1]=0.0;
-	ce[4][1]=1.0;
-	ce[5][1]=2.0;
-	ce[6][1]=3.0;
-	ce[7][1]=0.01;
-	ce[8][1]=0.03;
-	ce[9][1]=0.02;
-	ce[10][1]=0.4;
-	ce[11][1]=0.3;
-	ce[12][1]=0.5;
-	/*
-	 * ---------------------------------------------------------------------
-	 * coefficients of the exact solution to the third pde
-	 * ---------------------------------------------------------------------
-	 */
-	ce[0][2]=2.0;
-	ce[1][2]=2.0;
-	ce[2][2]=0.0;
-	ce[3][2]=0.0;
-	ce[4][2]=0.0;
-	ce[5][2]=2.0;
-	ce[6][2]=3.0;
-	ce[7][2]=0.04;
-	ce[8][2]=0.03;
-	ce[9][2]=0.05;
-	ce[10][2]=0.3;
-	ce[11][2]=0.5;
-	ce[12][2]=0.4;
-	/*
-	 * ---------------------------------------------------------------------
-	 * coefficients of the exact solution to the fourth pde
-	 * ---------------------------------------------------------------------
-	 */
-	ce[0][3]=2.0;
-	ce[1][3]=2.0;
-	ce[2][3]=0.0;
-	ce[3][3]=0.0;
-	ce[4][3]=0.0;
-	ce[5][3]=2.0;
-	ce[6][3]=3.0;
-	ce[7][3]=0.03;
-	ce[8][3]=0.05;
-	ce[9][3]=0.04;
-	ce[10][3]=0.2;
-	ce[11][3]=0.1;
-	ce[12][3]=0.3;
-	/*
-	 * ---------------------------------------------------------------------
-	 * coefficients of the exact solution to the fifth pde
-	 * ---------------------------------------------------------------------
-	 */
-	ce[0][4]=5.0;
-	ce[1][4]=4.0;
-	ce[2][4]=3.0;
-	ce[3][4]=2.0;
-	ce[4][4]=0.1;
-	ce[5][4]=0.4;
-	ce[6][4]=0.3;
-	ce[7][4]=0.05;
-	ce[8][4]=0.04;
-	ce[9][4]=0.03;
-	ce[10][4]=0.1;
-	ce[11][4]=0.3;
-	ce[12][4]=0.2;
-	/* */
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dx1), &dx1, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dx2), &dx2, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dx3), &dx3, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dx4), &dx4, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dx5), &dx5, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dy1), &dy1, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dy2), &dy2, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dy3), &dy3, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dy4), &dy4, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dy5), &dy5, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dz1), &dz1, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dz2), &dz2, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dz3), &dz3, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dz4), &dz4, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dz5), &dz5, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dssp), &dssp, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dxi), &dxi, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::deta), &deta, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dzeta), &dzeta, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::tx1), &tx1, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::tx2), &tx2, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::tx3), &tx3, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::ty1), &ty1, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::ty2), &ty2, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::ty3), &ty3, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::tz1), &tz1, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::tz2), &tz2, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::tz3), &tz3, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::ce), &ce, 13*5*sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::dt), &dt, sizeof(double));
-	hipMemcpyToSymbol(HIP_SYMBOL(constants_device::omega), &omega, sizeof(double));
+	dssp_host=(max(max(dx1_host,dy1_host),dz1_host))/4.0;	 
+	//
+	// ---------------------------------------------------------------------
+	// coefficients of the exact solution to the first pde
+	// ---------------------------------------------------------------------
+	//	
+	double ce_host[13][5];	
+	ce_host[0][0]=2.0;
+	ce_host[1][0]=0.0;
+	ce_host[2][0]=0.0;
+	ce_host[3][0]=4.0;
+	ce_host[4][0]=5.0;
+	ce_host[5][0]=3.0;
+	ce_host[6][0]=0.5;
+	ce_host[7][0]=0.02;
+	ce_host[8][0]=0.01;
+	ce_host[9][0]=0.03;
+	ce_host[10][0]=0.5;
+	ce_host[11][0]=0.4;
+	ce_host[12][0]=0.3;
+	//
+	// ---------------------------------------------------------------------
+	// coefficients of the exact solution to the second pde
+	// ---------------------------------------------------------------------
+	//
+	ce_host[0][1]=1.0;
+	ce_host[1][1]=0.0;
+	ce_host[2][1]=0.0;
+	ce_host[3][1]=0.0;
+	ce_host[4][1]=1.0;
+	ce_host[5][1]=2.0;
+	ce_host[6][1]=3.0;
+	ce_host[7][1]=0.01;
+	ce_host[8][1]=0.03;
+	ce_host[9][1]=0.02;
+	ce_host[10][1]=0.4;
+	ce_host[11][1]=0.3;
+	ce_host[12][1]=0.5;
+	//
+	// ---------------------------------------------------------------------
+	// coefficients of the exact solution to the third pde
+	// ---------------------------------------------------------------------
+	//
+	ce_host[0][2]=2.0;
+	ce_host[1][2]=2.0;
+	ce_host[2][2]=0.0;
+	ce_host[3][2]=0.0;
+	ce_host[4][2]=0.0;
+	ce_host[5][2]=2.0;
+	ce_host[6][2]=3.0;
+	ce_host[7][2]=0.04;
+	ce_host[8][2]=0.03;
+	ce_host[9][2]=0.05;
+	ce_host[10][2]=0.3;
+	ce_host[11][2]=0.5;
+	ce_host[12][2]=0.4;
+	//
+	// ---------------------------------------------------------------------
+	// coefficients of the exact solution to the fourth pde
+	// ---------------------------------------------------------------------
+	//
+	ce_host[0][3]=2.0;
+	ce_host[1][3]=2.0;
+	ce_host[2][3]=0.0;
+	ce_host[3][3]=0.0;
+	ce_host[4][3]=0.0;
+	ce_host[5][3]=2.0;
+	ce_host[6][3]=3.0;
+	ce_host[7][3]=0.03;
+	ce_host[8][3]=0.05;
+	ce_host[9][3]=0.04;
+	ce_host[10][3]=0.2;
+	ce_host[11][3]=0.1;
+	ce_host[12][3]=0.3;
+	//
+	// ---------------------------------------------------------------------
+	// coefficients of the exact solution to the fifth pde
+	// ---------------------------------------------------------------------
+	//
+	ce_host[0][4]=5.0;
+	ce_host[1][4]=4.0;
+	ce_host[2][4]=3.0;
+	ce_host[3][4]=2.0;
+	ce_host[4][4]=0.1;
+	ce_host[5][4]=0.4;
+	ce_host[6][4]=0.3;
+	ce_host[7][4]=0.05;
+	ce_host[8][4]=0.04;
+	ce_host[9][4]=0.03;
+	ce_host[10][4]=0.1;
+	ce_host[11][4]=0.3;
+	ce_host[12][4]=0.2;
+	//
+	// ---------------------------------------------------------------------
+	// set device constants
+	// ---------------------------------------------------------------------
+	//
+	hipMemcpyToSymbol(HIP_SYMBOL(dx1), &dx1_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dx2), &dx2_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dx3), &dx3_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dx4), &dx4_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dx5), &dx5_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dy1), &dy1_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dy2), &dy2_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dy3), &dy3_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dy4), &dy4_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dy5), &dy5_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dz1), &dz1_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dz2), &dz2_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dz3), &dz3_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dz4), &dz4_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dz5), &dz5_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dssp), &dssp_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dxi), &dxi_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(deta), &deta_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dzeta), &dzeta_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(tx1), &tx1_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(tx2), &tx2_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(tx3), &tx3_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(ty1), &ty1_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(ty2), &ty2_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(ty3), &ty3_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(tz1), &tz1_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(tz2), &tz2_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(tz3), &tz3_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(ce), &ce_host, 13*5*sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(dt), &dt_host, sizeof(double));
+	hipMemcpyToSymbol(HIP_SYMBOL(omega), &omega_host, sizeof(double));
 }
 
 /*
@@ -3430,8 +3414,7 @@ __global__ static void ssor_gpu_kernel_1(double* rsd,
 	i=threadIdx.x+1;
 	j=blockIdx.y+1;
 	k=blockIdx.x+1;
-
-	using namespace constants_device;
+	
 	rsd(0,i,j,k)*=dt;
 	rsd(1,i,j,k)*=dt;
 	rsd(2,i,j,k)*=dt;
