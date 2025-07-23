@@ -59,7 +59,7 @@
  */
 
 #include <hip/hip_runtime.h>
-#include "../common/npb-CPP.hpp"
+#include "../common/npb.hpp"
 #include "npbparams.hpp"
 
 #define IMAX (PROBLEM_SIZE)

@@ -1,20 +1,19 @@
 SHELL=/bin/sh
+
+CLASS=S
 BENCHMARK=sp
 BENCHMARKU=SP
+PARAMETERS=setparams
 
 include ../config/make.def
 
-OBJS =	sp.o \
-	${COMMON}/c_print_results.o ${COMMON}/c_timers.o ${COMMON}/c_wtime.o
+COMPILE_SP=$(CC) $(BENCHMARK).cpp -DCLASS_$(CLASS) -o $(BENCHMARK).$(CLASS)
+SET_PARAMETERS=$(CC) $(SYSDIR)/$(PARAMETERS).cpp -o $(PARAMETERS) && ./$(PARAMETERS) $(BENCHMARK) $(CLASS)
+MOVE_BINARIES=mv $(BENCHMARK).$(CLASS) $(BINDIR) && mv $(PARAMETERS) $(SYSDIR)
 
-include ../sys/make.common
-
-${PROGRAM}: config ${OBJS}
-	${CLINK} ${CLINKFLAGS} -o ${PROGRAM} ${OBJS} ${C_LIB}
-
-sp.o:		sp.cpp npbparams.hpp
-	${CCOMPILE} sp.cpp
+$(BENCHMARK):
+	$(pwd) $(SET_PARAMETERS) && $(COMPILE_SP) && $(MOVE_BINARIES)
 
 clean:
-	- rm -f *.o *~ mputil*
+	- rm -f *.o *~ 
 	- rm -f npbparams.hpp core

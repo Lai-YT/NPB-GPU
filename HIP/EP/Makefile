@@ -1,19 +1,18 @@
 SHELL=/bin/sh
+
+CLASS=S
 BENCHMARK=ep
 BENCHMARKU=EP
+PARAMETERS=setparams
 
 include ../config/make.def
 
-OBJS = ep.o ${COMMON}/c_print_results.o ${COMMON}/c_${RAND}.o \
-       ${COMMON}/c_timers.o ${COMMON}/c_wtime.o
+COMPILE_EP=$(CC) $(BENCHMARK).cpp -DCLASS_$(CLASS) -o $(BENCHMARK).$(CLASS)
+SET_PARAMETERS=$(CC) $(SYSDIR)/$(PARAMETERS).cpp -o $(PARAMETERS) && ./$(PARAMETERS) $(BENCHMARK) $(CLASS)
+MOVE_BINARIES=mv $(BENCHMARK).$(CLASS) $(BINDIR) && mv $(PARAMETERS) $(SYSDIR)
 
-include ../sys/make.common
-
-${PROGRAM}: config ${OBJS}
-	${CLINK} ${CLINKFLAGS} -o ${PROGRAM} ${OBJS} ${C_LIB}
-
-ep.o:		ep.cpp npbparams.hpp
-	${CCOMPILE} ep.cpp
+$(BENCHMARK):
+	$(pwd) $(SET_PARAMETERS) && $(COMPILE_EP) && $(MOVE_BINARIES)
 
 clean:
 	- rm -f *.o *~ 

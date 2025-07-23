@@ -58,7 +58,7 @@
  */
 
 #include <hip/hip_runtime.h>
-#include "../common/npb-CPP.hpp"
+#include "../common/npb.hpp"
 #include "npbparams.hpp"
 
 #define PROFILING_TOTAL_TIME (0)

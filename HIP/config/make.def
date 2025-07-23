@@ -93,18 +93,14 @@ CFLAGS = -O3
 CLINKFLAGS = -O3
 
 # ---------------------------------------------------------------------------
-# Utilities C:
-#
-# This is the C compiler used to compile C utilities. Flags required by 
-# this compiler go here also; typically there are few flags required; hence 
-# there are no separate macros provided for such flags.
-# ---------------------------------------------------------------------------
-UCC	= cc
-
-# ---------------------------------------------------------------------------
 # Destination of executables, relative to subdirs of the main directory. 
 # ---------------------------------------------------------------------------
-BINDIR	= ../bin
+BINDIR = ../bin
+
+# ---------------------------------------------------------------------------
+# Parameters folder. 
+# ---------------------------------------------------------------------------
+SYSDIR = ../sys
 
 # ---------------------------------------------------------------------------
 # The variable RAND controls which random number generator 

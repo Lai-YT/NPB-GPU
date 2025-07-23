@@ -1,19 +1,19 @@
 SHELL=/bin/sh
+
+CLASS=S
 BENCHMARK=bt
 BENCHMARKU=BT
+PARAMETERS=setparams
 
 include ../config/make.def
 
-OBJS =	bt.o \
-	${COMMON}/c_print_results.o ${COMMON}/c_timers.o ${COMMON}/c_wtime.o
+COMPILE_BT=$(CC) $(BENCHMARK).cpp -DCLASS_$(CLASS) -o $(BENCHMARK).$(CLASS)
+SET_PARAMETERS=$(CC) $(SYSDIR)/$(PARAMETERS).cpp -o $(PARAMETERS) && ./$(PARAMETERS) $(BENCHMARK) $(CLASS)
+MOVE_BINARIES=mv $(BENCHMARK).$(CLASS) $(BINDIR) && mv $(PARAMETERS) $(SYSDIR)
 
-include ../sys/make.common
+$(BENCHMARK):
+	$(pwd) $(SET_PARAMETERS) && $(COMPILE_BT) && $(MOVE_BINARIES)
 
-${PROGRAM}: config ${OBJS}
-	${CLINK} ${CLINKFLAGS} -o ${PROGRAM} ${OBJS} ${C_LIB}
-
-bt.o:             bt.cpp npbparams.hpp
-	${CCOMPILE} bt.cpp
 clean:
-	- rm -f *.o *~ mputil*
-	- rm -f  npbparams.hpp core
+	- rm -f *.o *~ 
+	- rm -f npbparams.hpp core

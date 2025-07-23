@@ -60,7 +60,7 @@
  */
 
 #include <hip/hip_runtime.h>
-#include "../common/npb-CPP.hpp"
+#include "../common/npb.hpp"
 #include "npbparams.hpp"
 
 #define NM (2+(1<<LM)) /* actual dimension including ghost cells for communications */
