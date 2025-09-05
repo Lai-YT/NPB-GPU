@@ -60,7 +60,7 @@ Each directory is independent and contains its own implemented version:
 
 2. Update the file `config/make.def` informing the path to the GPU compiler
 
-3. If you choose using HIP, execute the following command to choose the vendor of the GPU you want to use (e.g., `nvidia`, `amd`, or `intel`):
+3. If you choose HIP, also update the file `config/make.def` exporting the vendor of the GPU you want to use (e.g., `nvidia`, `amd`, or `intel`):
 
     ```
     export HIP_PLATFORM=amd
