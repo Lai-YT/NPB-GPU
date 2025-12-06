@@ -136,6 +136,7 @@ int ilog2(int i);
 
 enum benchmark_types {SP, BT, LU, MG, FT, IS, EP, CG, DC};
 
+int
 main(int argc, char *argv[]){
 	int type;
 	char class_npb, class_old;
@@ -213,7 +214,7 @@ char* read_nvcc_cuda_version(){
 	char* pointer;
 	sprintf(command, "nvcc --version |grep release |awk '{print $6}'"); 
 	file = popen(command,"r"); 
-	fgets(result, 1024 , file);
+	fgets(result, 64 , file);
 	pointer=result;
 	strtok(pointer, "\n");
 	fclose(file);
