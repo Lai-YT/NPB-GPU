@@ -62,11 +62,32 @@
 #include <cuda.h>
 #include <omp.h>
 
-/* single-precision complex type used on device for y0/y1 storage */
+/* NOTE: no alignments since `dcomplex` doesn't have one as well */
 typedef struct {
   float real;
   float imag;
 } fcomplex;
+
+#define fcomplex_create(r, i)                                                  \
+  (fcomplex) { r, i }
+#define fcomplex_add(a, b)                                                     \
+  fcomplex_create((a).real + (b).real, (a).imag + (b).imag)
+#define fcomplex_sub(a, b)                                                     \
+  fcomplex_create((a).real - (b).real, (a).imag - (b).imag)
+#define fcomplex_mul(a, b)                                                     \
+  fcomplex_create((a).real *(b).real - (a).imag * (b).imag,                    \
+                  (a).real * (b).imag + (a).imag * (b).real)
+
+#define fcomplex_mul2(a, b)                                                    \
+  (fcomplex) { (a).real *(b), (a).imag *(b) }
+
+#define fcomplex_abs(a) sqrtf((a).real *(a).real + (a).imag * (a).imag)
+
+static inline fcomplex fcomplex_div(fcomplex a, fcomplex b) {
+  float denom = b.real * b.real + b.imag * b.imag;
+  return fcomplex_create((a.real * b.real + a.imag * b.imag) / denom,
+                         (a.imag * b.real - a.real * b.imag) / denom);
+}
 
 /*
  * ---------------------------------------------------------------------
@@ -160,33 +181,31 @@ typedef struct {
 
 /* global variables */
 #if defined(DO_NOT_ALLOCATE_ARRAYS_WITH_DYNAMIC_MEMORY_AND_AS_SINGLE_DIMENSION)
-static dcomplex sums[NITER_DEFAULT + 1];
-static double twiddle[NTOTAL];
-static dcomplex u[MAXDIM];
-static dcomplex u0[NTOTAL];
-static dcomplex u1[NTOTAL];
+static fcomplex sums[NITER_DEFAULT + 1];
+static float twiddle[NTOTAL];
+static fcomplex u[MAXDIM];
+static fcomplex u0[NTOTAL];
+static fcomplex u1[NTOTAL];
 static int dims[3];
 #else
-static dcomplex(*sums) = (dcomplex *)malloc(sizeof(dcomplex) *
+static fcomplex(*sums) = (fcomplex *)malloc(sizeof(fcomplex) *
                                             (NITER_DEFAULT + 1));
-static double(*twiddle) = (double *)malloc(sizeof(double) * (NTOTAL));
-static dcomplex(*u) = (dcomplex *)malloc(sizeof(dcomplex) * (MAXDIM));
-static dcomplex(*u0) = (dcomplex *)malloc(sizeof(dcomplex) * (NTOTAL));
-static dcomplex(*u1) = (dcomplex *)malloc(sizeof(dcomplex) * (NTOTAL));
+static float(*twiddle) = (float *)malloc(sizeof(float) * (NTOTAL));
+static fcomplex(*u) = (fcomplex *)malloc(sizeof(fcomplex) * (MAXDIM));
+static fcomplex(*u0) = (fcomplex *)malloc(sizeof(fcomplex) * (NTOTAL));
+static fcomplex(*u1) = (fcomplex *)malloc(sizeof(fcomplex) * (NTOTAL));
 static int(*dims) = (int *)malloc(sizeof(int) * (3));
 #endif
 static int niter;
 /* gpu variables */
 double *starts_device;
-double *twiddle_device;
-dcomplex *sums_device;
-dcomplex *u_device;
-dcomplex *u0_device;
-dcomplex *u1_device;
-dcomplex *u2_device;
-fcomplex
-    *y0_device; /* store y0 on device as single-precision complex (fcomplex) */
-/* y0 and y1 on device stored as single-precision complex (fcomplex) */
+float *twiddle_device;
+fcomplex *sums_device;
+fcomplex *u_device;
+fcomplex *u0_device;
+fcomplex *u1_device;
+fcomplex *u2_device;
+fcomplex *y0_device;
 fcomplex *y1_device;
 size_t size_sums_device;
 size_t size_starts_device;
@@ -228,53 +247,53 @@ int threads_per_block_on_checksum;
 int gpu_device_id;
 int total_devices;
 cudaDeviceProp gpu_device_properties;
-extern __shared__ double extern_share_data[];
+extern __shared__ float extern_share_data[];
 
 /* function declarations */
-static void cffts1_gpu(const int is, dcomplex u[], dcomplex x_in[],
-                       dcomplex x_out[], fcomplex y0[], fcomplex y1[]);
-__global__ void cffts1_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]);
+static void cffts1_gpu(const int is, fcomplex u[], fcomplex x_in[],
+                       fcomplex x_out[], fcomplex y0[], fcomplex y1[]);
+__global__ void cffts1_gpu_kernel_1(fcomplex x_in[], fcomplex y0[]);
 __global__ void cffts1_gpu_kernel_2(const int is, fcomplex y0[], fcomplex y1[],
-                                    dcomplex u_device[]);
-__global__ void cffts1_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]);
-static void cffts2_gpu(int is, dcomplex u[], dcomplex x_in[], dcomplex x_out[],
+                                    fcomplex u_device[]);
+__global__ void cffts1_gpu_kernel_3(fcomplex x_out[], fcomplex y0[]);
+static void cffts2_gpu(int is, fcomplex u[], fcomplex x_in[], fcomplex x_out[],
                        fcomplex y0[], fcomplex y1[]);
-__global__ void cffts2_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]);
+__global__ void cffts2_gpu_kernel_1(fcomplex x_in[], fcomplex y0[]);
 __global__ void cffts2_gpu_kernel_2(const int is, fcomplex y0[], fcomplex y1[],
-                                    dcomplex u_device[]);
-__global__ void cffts2_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]);
-static void cffts3_gpu(int is, dcomplex u[], dcomplex x_in[], dcomplex x_out[],
+                                    fcomplex u_device[]);
+__global__ void cffts2_gpu_kernel_3(fcomplex x_out[], fcomplex y0[]);
+static void cffts3_gpu(int is, fcomplex u[], fcomplex x_in[], fcomplex x_out[],
                        fcomplex y0[], fcomplex y1[]);
 __device__ void cffts3_gpu_cfftz_device(const int is, int m, int n,
                                         fcomplex x[], fcomplex y[],
-                                        dcomplex u_device[], int index_arg,
+                                        fcomplex u_device[], int index_arg,
                                         int size_arg);
 __device__ void cffts3_gpu_fftz2_device(const int is, int l, int m, int n,
-                                        dcomplex u[], fcomplex x[],
+                                        fcomplex u[], fcomplex x[],
                                         fcomplex y[], int index_arg,
                                         int size_arg);
-__global__ void cffts3_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]);
+__global__ void cffts3_gpu_kernel_1(fcomplex x_in[], fcomplex y0[]);
 __global__ void cffts3_gpu_kernel_2(const int is, fcomplex y0[], fcomplex y1[],
-                                    dcomplex u_device[]);
-__global__ void cffts3_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]);
-static void checksum_gpu(int iteration, dcomplex u1[]);
-__global__ void checksum_gpu_kernel(int iteration, dcomplex u1[],
-                                    dcomplex sums[]);
-static void compute_indexmap_gpu(double twiddle[]);
-__global__ void compute_indexmap_gpu_kernel(double twiddle[]);
-static void compute_initial_conditions_gpu(dcomplex u0[]);
-__global__ void compute_initial_conditions_gpu_kernel(dcomplex u0[],
+                                    fcomplex u_device[]);
+__global__ void cffts3_gpu_kernel_3(fcomplex x_out[], fcomplex y0[]);
+static void checksum_gpu(int iteration, fcomplex u1[]);
+__global__ void checksum_gpu_kernel(int iteration, fcomplex u1[],
+                                    fcomplex sums[]);
+static void compute_indexmap_gpu(float twiddle[]);
+__global__ void compute_indexmap_gpu_kernel(float twiddle[]);
+static void compute_initial_conditions_gpu(fcomplex u0[]);
+__global__ void compute_initial_conditions_gpu_kernel(fcomplex u0[],
                                                       double starts[]);
-static void evolve_gpu(dcomplex u0[], dcomplex u1[], double twiddle[]);
-__global__ void evolve_gpu_kernel(dcomplex u0[], dcomplex u1[],
-                                  double twiddle[]);
-static void fft_gpu(int dir, dcomplex x1[], dcomplex x2[]);
+static void evolve_gpu(fcomplex u0[], fcomplex u1[], float twiddle[]);
+__global__ void evolve_gpu_kernel(fcomplex u0[], fcomplex u1[],
+                                  float twiddle[]);
+static void fft_gpu(int dir, fcomplex x1[], fcomplex x2[]);
 static void fft_init_gpu(int n);
 static int ilog2(int n);
 __device__ int ilog2_device(int n);
-static void init_ui_gpu(dcomplex u0[], dcomplex u1[], double twiddle[]);
-__global__ void init_ui_gpu_kernel(dcomplex u0[], dcomplex u1[],
-                                   double twiddle[]);
+static void init_ui_gpu(fcomplex u0[], fcomplex u1[], float twiddle[]);
+__global__ void init_ui_gpu_kernel(fcomplex u0[], fcomplex u1[],
+                                   float twiddle[]);
 static void ipow46(double a, int exponent, double *result);
 __device__ void ipow46_device(double a, int exponent, double *result);
 __device__ double randlc_device(double *x, double a);
@@ -283,7 +302,7 @@ static void setup();
 static void setup_gpu();
 static void verify(int d1, int d2, int d3, int nt, boolean *verified,
                    char *class_npb);
-__device__ void vranlc_device(int n, double *x_seed, double a, double y[]);
+__device__ void vranlc_device(int n, double *x_seed, double a, float y[]);
 
 /* ft */
 int main(int argc, char **argv) {
@@ -357,7 +376,6 @@ int main(int argc, char **argv) {
       fft_init_gpu(MAXDIM);
     }
   }
-  cudaDeviceSynchronize();
   fft_gpu(1, u1_device, u0_device);
   for (iter = 1; iter <= niter; iter++) {
     evolve_gpu(u0_device, u1_device, twiddle_device);
@@ -511,8 +529,8 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-static void cffts1_gpu(const int is, dcomplex u[], dcomplex x_in[],
-                       dcomplex x_out[], fcomplex y0[], fcomplex y1[]) {
+static void cffts1_gpu(const int is, fcomplex u[], fcomplex x_in[],
+                       fcomplex x_out[], fcomplex y0[], fcomplex y1[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_FFTX_1);
 #endif
@@ -551,7 +569,7 @@ static void cffts1_gpu(const int is, dcomplex u[], dcomplex x_in[],
  * y0[y + x*NY + z*NX*NY] = x_in[x + y*NX + z*NX*NY]
  * ----------------------------------------------------------------------
  */
-__global__ void cffts1_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]) {
+__global__ void cffts1_gpu_kernel_1(fcomplex x_in[], fcomplex y0[]) {
   int x_y_z = blockIdx.x * blockDim.x + threadIdx.x;
   if (x_y_z >= (NX * NY * NZ)) {
     return;
@@ -569,7 +587,7 @@ __global__ void cffts1_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]) {
  * ----------------------------------------------------------------------
  */
 __global__ void cffts1_gpu_kernel_2(const int is, fcomplex gty1[],
-                                    fcomplex gty2[], dcomplex u_device[]) {
+                                    fcomplex gty2[], fcomplex u_device[]) {
   int y_z = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (y_z >= (NY * NZ)) {
@@ -585,12 +603,12 @@ __global__ void cffts1_gpu_kernel_2(const int is, fcomplex gty1[],
 
   const int logd1 = ilog2_device(NX);
 
-  double uu1_real, x11_real, x21_real;
-  double uu1_imag, x11_imag, x21_imag;
-  double uu2_real, x12_real, x22_real;
-  double uu2_imag, x12_imag, x22_imag;
-  double temp_real, temp2_real;
-  double temp_imag, temp2_imag;
+  float uu1_real, x11_real, x21_real;
+  float uu1_imag, x11_imag, x21_imag;
+  float uu2_real, x12_real, x22_real;
+  float uu2_imag, x12_imag, x22_imag;
+  float temp_real, temp2_real;
+  float temp_imag, temp2_imag;
 
   for (l = 1; l <= logd1; l += 2) {
     n1 = NX / 2;
@@ -687,7 +705,7 @@ __global__ void cffts1_gpu_kernel_2(const int is, fcomplex gty1[],
  * x_out[x + y*NX + z*NX*NY] = y0[y + x*NY + z*NX*NY]
  * ----------------------------------------------------------------------
  */
-__global__ void cffts1_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]) {
+__global__ void cffts1_gpu_kernel_3(fcomplex x_out[], fcomplex y0[]) {
   int x_y_z = blockIdx.x * blockDim.x + threadIdx.x;
   if (x_y_z >= (NX * NY * NZ)) {
     return;
@@ -699,7 +717,7 @@ __global__ void cffts1_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]) {
   x_out[x_y_z].imag = y0[y + (x * NY) + (z * NX * NY)].imag;
 }
 
-static void cffts2_gpu(int is, dcomplex u[], dcomplex x_in[], dcomplex x_out[],
+static void cffts2_gpu(int is, fcomplex u[], fcomplex x_in[], fcomplex x_out[],
                        fcomplex y0[], fcomplex y1[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_FFTY_1);
@@ -739,7 +757,7 @@ static void cffts2_gpu(int is, dcomplex u[], dcomplex x_in[], dcomplex x_out[],
  * y0[x + y*NX + z*NX*NY]  = x_in[x + y*NX + z*NX*NY]
  * ----------------------------------------------------------------------
  */
-__global__ void cffts2_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]) {
+__global__ void cffts2_gpu_kernel_1(fcomplex x_in[], fcomplex y0[]) {
   int x_y_z = blockIdx.x * blockDim.x + threadIdx.x;
   if (x_y_z >= (NX * NY * NZ)) {
     return;
@@ -754,7 +772,7 @@ __global__ void cffts2_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]) {
  * ----------------------------------------------------------------------
  */
 __global__ void cffts2_gpu_kernel_2(const int is, fcomplex gty1[],
-                                    fcomplex gty2[], dcomplex u_device[]) {
+                                    fcomplex gty2[], fcomplex u_device[]) {
   int x_z = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (x_z >= (NX * NZ)) {
@@ -770,12 +788,12 @@ __global__ void cffts2_gpu_kernel_2(const int is, fcomplex gty1[],
 
   const int logd2 = ilog2_device(NY);
 
-  double uu1_real, x11_real, x21_real;
-  double uu1_imag, x11_imag, x21_imag;
-  double uu2_real, x12_real, x22_real;
-  double uu2_imag, x12_imag, x22_imag;
-  double temp_real, temp2_real;
-  double temp_imag, temp2_imag;
+  float uu1_real, x11_real, x21_real;
+  float uu1_imag, x11_imag, x21_imag;
+  float uu2_real, x12_real, x22_real;
+  float uu2_imag, x12_imag, x22_imag;
+  float temp_real, temp2_real;
+  float temp_imag, temp2_imag;
 
   for (l = 1; l <= logd2; l += 2) {
     n1 = NY / 2;
@@ -872,7 +890,7 @@ __global__ void cffts2_gpu_kernel_2(const int is, fcomplex gty1[],
  * x_out[x + y*NX + z*NX*NY] = y0[x + y*NX + z*NX*NY]
  * ----------------------------------------------------------------------
  */
-__global__ void cffts2_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]) {
+__global__ void cffts2_gpu_kernel_3(fcomplex x_out[], fcomplex y0[]) {
   int x_y_z = blockIdx.x * blockDim.x + threadIdx.x;
   if (x_y_z >= (NX * NY * NZ)) {
     return;
@@ -881,7 +899,7 @@ __global__ void cffts2_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]) {
   x_out[x_y_z].imag = y0[x_y_z].imag;
 }
 
-static void cffts3_gpu(int is, dcomplex u[], dcomplex x_in[], dcomplex x_out[],
+static void cffts3_gpu(int is, fcomplex u[], fcomplex x_in[], fcomplex x_out[],
                        fcomplex y0[], fcomplex y1[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_FFTZ_1);
@@ -925,7 +943,7 @@ static void cffts3_gpu(int is, dcomplex u[], dcomplex x_in[], dcomplex x_out[],
  */
 __device__ void cffts3_gpu_cfftz_device(const int is, int m, int n,
                                         fcomplex x[], fcomplex y[],
-                                        dcomplex u_device[], int index_arg,
+                                        fcomplex u_device[], int index_arg,
                                         int size_arg) {
   int j, l;
   /*
@@ -964,13 +982,13 @@ __device__ void cffts3_gpu_cfftz_device(const int is, int m, int n,
  * ----------------------------------------------------------------------
  */
 __device__ void cffts3_gpu_fftz2_device(const int is, int l, int m, int n,
-                                        dcomplex u[], fcomplex x[],
+                                        fcomplex u[], fcomplex x[],
                                         fcomplex y[], int index_arg,
                                         int size_arg) {
   int k, n1, li, lj, lk, ku, i, i11, i12, i21, i22;
-  double x11real, x11imag;
-  double x21real, x21imag;
-  dcomplex u1;
+  float x11real, x11imag;
+  float x21real, x21imag;
+  fcomplex u1;
   /*
    * ---------------------------------------------------------------------
    * set initial parameters.
@@ -1015,7 +1033,7 @@ __device__ void cffts3_gpu_fftz2_device(const int is, int l, int m, int n,
  * y0[x + y*NX + z*NX*NY]  = x_in[x + y*NX + z*NX*NY]
  * ----------------------------------------------------------------------
  */
-__global__ void cffts3_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]) {
+__global__ void cffts3_gpu_kernel_1(fcomplex x_in[], fcomplex y0[]) {
   int x_y_z = blockIdx.x * blockDim.x + threadIdx.x;
   if (x_y_z >= (NX * NY * NZ)) {
     return;
@@ -1030,7 +1048,7 @@ __global__ void cffts3_gpu_kernel_1(dcomplex x_in[], fcomplex y0[]) {
  * ----------------------------------------------------------------------
  */
 __global__ void cffts3_gpu_kernel_2(const int is, fcomplex gty1[],
-                                    fcomplex gty2[], dcomplex u_device[]) {
+                                    fcomplex gty2[], fcomplex u_device[]) {
   int x_y = blockIdx.x * blockDim.x + threadIdx.x;
   if (x_y >= (NX * NY)) {
     return;
@@ -1047,7 +1065,7 @@ __global__ void cffts3_gpu_kernel_2(const int is, fcomplex gty1[],
  * ----------------------------------------------------------------------
  */
 
-__global__ void cffts3_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]) {
+__global__ void cffts3_gpu_kernel_3(fcomplex x_out[], fcomplex y0[]) {
   int x_y_z = blockIdx.x * blockDim.x + threadIdx.x;
   if (x_y_z >= (NX * NY * NZ)) {
     return;
@@ -1056,7 +1074,7 @@ __global__ void cffts3_gpu_kernel_3(dcomplex x_out[], fcomplex y0[]) {
   x_out[x_y_z].imag = y0[x_y_z].imag;
 }
 
-static void checksum_gpu(int iteration, dcomplex u1[]) {
+static void checksum_gpu(int iteration, fcomplex u1[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_CHECKSUM);
 #endif
@@ -1068,9 +1086,9 @@ static void checksum_gpu(int iteration, dcomplex u1[]) {
 #endif
 }
 
-__global__ void checksum_gpu_kernel(int iteration, dcomplex u1[],
-                                    dcomplex sums[]) {
-  dcomplex *share_sums = (dcomplex *)(extern_share_data);
+__global__ void checksum_gpu_kernel(int iteration, fcomplex u1[],
+                                    fcomplex sums[]) {
+  fcomplex *share_sums = (fcomplex *)(extern_share_data);
   int j = (blockIdx.x * blockDim.x + threadIdx.x) + 1;
   int q, r, s;
 
@@ -1080,26 +1098,26 @@ __global__ void checksum_gpu_kernel(int iteration, dcomplex u1[],
     s = 5 * j % NZ;
     share_sums[threadIdx.x] = u1[q + r * NX + s * NX * NY];
   } else {
-    share_sums[threadIdx.x] = dcomplex_create(0.0, 0.0);
+    share_sums[threadIdx.x] = fcomplex_create(0.0f, 0.0f);
   }
 
   __syncthreads();
   for (int i = blockDim.x / 2; i > 0; i >>= 1) {
     if (threadIdx.x < i) {
       share_sums[threadIdx.x] =
-          dcomplex_add(share_sums[threadIdx.x], share_sums[threadIdx.x + i]);
+          fcomplex_add(share_sums[threadIdx.x], share_sums[threadIdx.x + i]);
     }
     __syncthreads();
   }
   if (threadIdx.x == 0) {
-    share_sums[0].real = share_sums[0].real / (double)(NTOTAL);
+    share_sums[0].real = share_sums[0].real / (float)(NTOTAL);
     atomicAdd(&sums[iteration].real, share_sums[0].real);
-    share_sums[0].imag = share_sums[0].imag / (double)(NTOTAL);
+    share_sums[0].imag = share_sums[0].imag / (float)(NTOTAL);
     atomicAdd(&sums[iteration].imag, share_sums[0].imag);
   }
 }
 
-static void compute_indexmap_gpu(double twiddle[]) {
+static void compute_indexmap_gpu(float twiddle[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_INDEXMAP);
 #endif
@@ -1111,7 +1129,7 @@ static void compute_indexmap_gpu(double twiddle[]) {
 #endif
 }
 
-__global__ void compute_indexmap_gpu_kernel(double twiddle[]) {
+__global__ void compute_indexmap_gpu_kernel(float twiddle[]) {
   int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (thread_id >= NTOTAL) {
@@ -1130,10 +1148,10 @@ __global__ void compute_indexmap_gpu_kernel(double twiddle[]) {
   kj2 = jj * jj + kk2;
   ii = ((i + NX / 2) % NX) - NX / 2;
 
-  twiddle[thread_id] = exp(AP * (double)(ii * ii + kj2));
+  twiddle[thread_id] = expf(AP * (float)(ii * ii + kj2));
 }
 
-static void compute_initial_conditions_gpu(dcomplex u0[]) {
+static void compute_initial_conditions_gpu(fcomplex u0[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_INITIAL_CONDITIONS);
 #endif
@@ -1157,12 +1175,13 @@ static void compute_initial_conditions_gpu(dcomplex u0[]) {
   compute_initial_conditions_gpu_kernel<<<
       blocks_per_grid_on_compute_initial_conditions,
       threads_per_block_on_compute_initial_conditions>>>(u0, starts_device);
+  cudaDeviceSynchronize();
 #if defined(PROFILING)
   timer_stop(PROFILING_INITIAL_CONDITIONS);
 #endif
 }
 
-__global__ void compute_initial_conditions_gpu_kernel(dcomplex u0[],
+__global__ void compute_initial_conditions_gpu_kernel(fcomplex u0[],
                                                       double starts[]) {
   int z = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -1172,11 +1191,11 @@ __global__ void compute_initial_conditions_gpu_kernel(dcomplex u0[],
 
   double x0 = starts[z];
   for (int y = 0; y < NY; y++) {
-    vranlc_device(2 * NX, &x0, A, (double *)&u0[0 + y * NX + z * NX * NY]);
+    vranlc_device(2 * NX, &x0, A, (float *)(&u0[0 + y * NX + z * NX * NY]));
   }
 }
 
-static void evolve_gpu(dcomplex u0[], dcomplex u1[], double twiddle[]) {
+static void evolve_gpu(fcomplex u0[], fcomplex u1[], float twiddle[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_EVOLVE);
 #endif
@@ -1188,19 +1207,19 @@ static void evolve_gpu(dcomplex u0[], dcomplex u1[], double twiddle[]) {
 #endif
 }
 
-__global__ void evolve_gpu_kernel(dcomplex u0[], dcomplex u1[],
-                                  double twiddle[]) {
+__global__ void evolve_gpu_kernel(fcomplex u0[], fcomplex u1[],
+                                  float twiddle[]) {
   int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (thread_id >= (NZ * NY * NX)) {
     return;
   }
 
-  u0[thread_id] = dcomplex_mul2(u0[thread_id], twiddle[thread_id]);
+  u0[thread_id] = fcomplex_mul2(u0[thread_id], twiddle[thread_id]);
   u1[thread_id] = u0[thread_id];
 }
 
-static void fft_gpu(int dir, dcomplex x1[], dcomplex x2[]) {
+static void fft_gpu(int dir, fcomplex x1[], fcomplex x2[]) {
   /*
    * ---------------------------------------------------------------------
    * note: args x1, x2 must be different arrays
@@ -1225,7 +1244,7 @@ static void fft_init_gpu(int n) {
   timer_start(PROFILING_INIT);
 #endif
   int m, ku, i, j, ln;
-  double t, ti;
+  float t, ti;
   /*
    * ---------------------------------------------------------------------
    * initialize the U array with sines and cosines in a manner that permits
@@ -1233,14 +1252,14 @@ static void fft_init_gpu(int n) {
    * ---------------------------------------------------------------------
    */
   m = ilog2(n);
-  u[0] = dcomplex_create((double)m, 0.0);
+  u[0] = fcomplex_create((float)m, 0.0f);
   ku = 2;
   ln = 1;
   for (j = 1; j <= m; j++) {
     t = PI / ln;
     for (i = 0; i <= ln - 1; i++) {
       ti = i * t;
-      u[i + ku - 1] = dcomplex_create(cos(ti), sin(ti));
+      u[i + ku - 1] = fcomplex_create(cosf(ti), sinf(ti));
     }
     ku = ku + ln;
     ln = 2 * ln;
@@ -1279,7 +1298,7 @@ __device__ int ilog2_device(int n) {
   return lg;
 }
 
-static void init_ui_gpu(dcomplex u0[], dcomplex u1[], double twiddle[]) {
+static void init_ui_gpu(fcomplex u0[], fcomplex u1[], float twiddle[]) {
 #if defined(PROFILING)
   timer_start(PROFILING_INIT_UI);
 #endif
@@ -1291,17 +1310,17 @@ static void init_ui_gpu(dcomplex u0[], dcomplex u1[], double twiddle[]) {
 #endif
 }
 
-__global__ void init_ui_gpu_kernel(dcomplex u0[], dcomplex u1[],
-                                   double twiddle[]) {
+__global__ void init_ui_gpu_kernel(fcomplex u0[], fcomplex u1[],
+                                   float twiddle[]) {
   int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (thread_id >= NTOTAL) {
     return;
   }
 
-  u0[thread_id] = dcomplex_create(0.0, 0.0);
-  u1[thread_id] = dcomplex_create(0.0, 0.0);
-  twiddle[thread_id] = 0.0;
+  u0[thread_id] = fcomplex_create(0.0f, 0.0f);
+  u1[thread_id] = fcomplex_create(0.0f, 0.0f);
+  twiddle[thread_id] = 0.0f;
 }
 
 static void ipow46(double a, int exponent, double *result) {
@@ -1552,46 +1571,47 @@ static void setup_gpu() {
     threads_per_block_on_checksum = gpu_device_properties.warpSize;
   }
 
-  blocks_per_grid_on_compute_indexmap =
-      ceil(double(NTOTAL) / double(threads_per_block_on_compute_indexmap));
-  blocks_per_grid_on_compute_initial_conditions = ceil(
-      double(NZ) / double(threads_per_block_on_compute_initial_conditions));
+  blocks_per_grid_on_compute_indexmap = (int)ceilf(
+      (float)(NTOTAL) / (float)(threads_per_block_on_compute_indexmap));
+  blocks_per_grid_on_compute_initial_conditions = (int)ceilf(
+      (float)(NZ) / (float)(threads_per_block_on_compute_initial_conditions));
   blocks_per_grid_on_init_ui =
-      ceil(double(NTOTAL) / double(threads_per_block_on_init_ui));
+      (int)ceilf((float)(NTOTAL) / (float)(threads_per_block_on_init_ui));
   blocks_per_grid_on_evolve =
-      ceil(double(NTOTAL) / double(threads_per_block_on_evolve));
+      (int)ceilf((float)(NTOTAL) / (float)(threads_per_block_on_evolve));
   blocks_per_grid_on_fftx_1 =
-      ceil(double(NX * NY * NZ) / double(threads_per_block_on_fftx_1));
+      (int)ceilf((float)(NX * NY * NZ) / (float)(threads_per_block_on_fftx_1));
   blocks_per_grid_on_fftx_2 =
-      ceil(double(NY * NZ) / double(threads_per_block_on_fftx_2));
+      (int)ceilf((float)(NY * NZ) / (float)(threads_per_block_on_fftx_2));
   blocks_per_grid_on_fftx_3 =
-      ceil(double(NX * NY * NZ) / double(threads_per_block_on_fftx_3));
+      (int)ceilf((float)(NX * NY * NZ) / (float)(threads_per_block_on_fftx_3));
   blocks_per_grid_on_ffty_1 =
-      ceil(double(NX * NY * NZ) / double(threads_per_block_on_ffty_1));
+      (int)ceilf((float)(NX * NY * NZ) / (float)(threads_per_block_on_ffty_1));
   blocks_per_grid_on_ffty_2 =
-      ceil(double(NX * NZ) / double(threads_per_block_on_ffty_2));
+      (int)ceilf((float)(NX * NZ) / (float)(threads_per_block_on_ffty_2));
   blocks_per_grid_on_ffty_3 =
-      ceil(double(NX * NY * NZ) / double(threads_per_block_on_ffty_3));
+      (int)ceilf((float)(NX * NY * NZ) / (float)(threads_per_block_on_ffty_3));
   blocks_per_grid_on_fftz_1 =
-      ceil(double(NX * NY * NZ) / double(threads_per_block_on_fftz_1));
+      (int)ceilf((float)(NX * NY * NZ) / (float)(threads_per_block_on_fftz_1));
   blocks_per_grid_on_fftz_2 =
-      ceil(double(NX * NY) / double(threads_per_block_on_fftz_2));
+      (int)ceilf((float)(NX * NY) / (float)(threads_per_block_on_fftz_2));
   blocks_per_grid_on_fftz_3 =
-      ceil(double(NX * NY * NZ) / double(threads_per_block_on_fftz_3));
-  blocks_per_grid_on_checksum =
-      ceil(double(CHECKSUM_TASKS) / double(threads_per_block_on_checksum));
+      (int)ceilf((float)(NX * NY * NZ) / (float)(threads_per_block_on_fftz_3));
+  blocks_per_grid_on_checksum = (int)ceilf(
+      (float)(CHECKSUM_TASKS) / (float)(threads_per_block_on_checksum));
 
-  size_sums_device = (NITER_DEFAULT + 1) * sizeof(dcomplex);
+  size_sums_device = (NITER_DEFAULT + 1) * sizeof(fcomplex);
   size_starts_device = NZ * sizeof(double);
-  size_twiddle_device = NTOTAL * sizeof(double);
-  size_u_device = MAXDIM * sizeof(dcomplex);
-  size_u0_device = NTOTAL * sizeof(dcomplex);
-  size_u1_device = NTOTAL * sizeof(dcomplex);
+  size_twiddle_device = NTOTAL * sizeof(float);
+  size_u_device = MAXDIM * sizeof(fcomplex);
+  size_u0_device = NTOTAL * sizeof(fcomplex);
+  size_u1_device = NTOTAL * sizeof(fcomplex);
   size_y0_device = NTOTAL * sizeof(fcomplex);
   size_y1_device = NTOTAL * sizeof(fcomplex);
-  size_shared_data = threads_per_block_on_checksum * sizeof(dcomplex);
+  size_shared_data = threads_per_block_on_checksum * sizeof(fcomplex);
 
   cudaMalloc(&sums_device, size_sums_device);
+  cudaMemset(sums_device, 0, size_sums_device);
   cudaMalloc(&starts_device, size_starts_device);
   cudaMalloc(&twiddle_device, size_twiddle_device);
   cudaMalloc(&u_device, size_u_device);
@@ -1606,15 +1626,15 @@ static void setup_gpu() {
 static void verify(int d1, int d2, int d3, int nt, boolean *verified,
                    char *class_npb) {
   int i;
-  double err, epsilon;
+  float err, epsilon;
   /*
    * ---------------------------------------------------------------------
    * reference checksums
    * ---------------------------------------------------------------------
    */
-  dcomplex csum_ref[25 + 1];
+  fcomplex csum_ref[25 + 1];
   *class_npb = 'U';
-  epsilon = 1.0e-12;
+  epsilon = 1.0e-2f; /* Relaxed for single-precision float */
   *verified = false;
   if (d1 == 64 && d2 == 64 && d3 == 64 && nt == 6) {
     /*
@@ -1623,12 +1643,12 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
      * ---------------------------------------------------------------------
      */
     *class_npb = 'S';
-    csum_ref[1] = dcomplex_create(5.546087004964E+02, 4.845363331978E+02);
-    csum_ref[2] = dcomplex_create(5.546385409189E+02, 4.865304269511E+02);
-    csum_ref[3] = dcomplex_create(5.546148406171E+02, 4.883910722336E+02);
-    csum_ref[4] = dcomplex_create(5.545423607415E+02, 4.901273169046E+02);
-    csum_ref[5] = dcomplex_create(5.544255039624E+02, 4.917475857993E+02);
-    csum_ref[6] = dcomplex_create(5.542683411902E+02, 4.932597244941E+02);
+    csum_ref[1] = fcomplex_create(5.546087004964E+02f, 4.845363331978E+02f);
+    csum_ref[2] = fcomplex_create(5.546385409189E+02f, 4.865304269511E+02f);
+    csum_ref[3] = fcomplex_create(5.546148406171E+02f, 4.883910722336E+02f);
+    csum_ref[4] = fcomplex_create(5.545423607415E+02f, 4.901273169046E+02f);
+    csum_ref[5] = fcomplex_create(5.544255039624E+02f, 4.917475857993E+02f);
+    csum_ref[6] = fcomplex_create(5.542683411902E+02f, 4.932597244941E+02f);
   } else if (d1 == 128 && d2 == 128 && d3 == 32 && nt == 6) {
     /*
      * ---------------------------------------------------------------------
@@ -1636,12 +1656,12 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
      * ---------------------------------------------------------------------
      */
     *class_npb = 'W';
-    csum_ref[1] = dcomplex_create(5.673612178944E+02, 5.293246849175E+02);
-    csum_ref[2] = dcomplex_create(5.631436885271E+02, 5.282149986629E+02);
-    csum_ref[3] = dcomplex_create(5.594024089970E+02, 5.270996558037E+02);
-    csum_ref[4] = dcomplex_create(5.560698047020E+02, 5.260027904925E+02);
-    csum_ref[5] = dcomplex_create(5.530898991250E+02, 5.249400845633E+02);
-    csum_ref[6] = dcomplex_create(5.504159734538E+02, 5.239212247086E+02);
+    csum_ref[1] = fcomplex_create(5.673612178944E+02f, 5.293246849175E+02f);
+    csum_ref[2] = fcomplex_create(5.631436885271E+02f, 5.282149986629E+02f);
+    csum_ref[3] = fcomplex_create(5.594024089970E+02f, 5.270996558037E+02f);
+    csum_ref[4] = fcomplex_create(5.560698047020E+02f, 5.260027904925E+02f);
+    csum_ref[5] = fcomplex_create(5.530898991250E+02f, 5.249400845633E+02f);
+    csum_ref[6] = fcomplex_create(5.504159734538E+02f, 5.239212247086E+02f);
   } else if (d1 == 256 && d2 == 256 && d3 == 128 && nt == 6) {
     /*
      * ---------------------------------------------------------------------
@@ -1649,12 +1669,12 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
      * ---------------------------------------------------------------------
      */
     *class_npb = 'A';
-    csum_ref[1] = dcomplex_create(5.046735008193E+02, 5.114047905510E+02);
-    csum_ref[2] = dcomplex_create(5.059412319734E+02, 5.098809666433E+02);
-    csum_ref[3] = dcomplex_create(5.069376896287E+02, 5.098144042213E+02);
-    csum_ref[4] = dcomplex_create(5.077892868474E+02, 5.101336130759E+02);
-    csum_ref[5] = dcomplex_create(5.085233095391E+02, 5.104914655194E+02);
-    csum_ref[6] = dcomplex_create(5.091487099959E+02, 5.107917842803E+02);
+    csum_ref[1] = fcomplex_create(5.046735008193E+02f, 5.114047905510E+02f);
+    csum_ref[2] = fcomplex_create(5.059412319734E+02f, 5.098809666433E+02f);
+    csum_ref[3] = fcomplex_create(5.069376896287E+02f, 5.098144042213E+02f);
+    csum_ref[4] = fcomplex_create(5.077892868474E+02f, 5.101336130759E+02f);
+    csum_ref[5] = fcomplex_create(5.085233095391E+02f, 5.104914655194E+02f);
+    csum_ref[6] = fcomplex_create(5.091487099959E+02f, 5.107917842803E+02f);
   } else if (d1 == 512 && d2 == 256 && d3 == 256 && nt == 20) {
     /*
      * --------------------------------------------------------------------
@@ -1662,26 +1682,26 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
      * ---------------------------------------------------------------------
      */
     *class_npb = 'B';
-    csum_ref[1] = dcomplex_create(5.177643571579E+02, 5.077803458597E+02);
-    csum_ref[2] = dcomplex_create(5.154521291263E+02, 5.088249431599E+02);
-    csum_ref[3] = dcomplex_create(5.146409228649E+02, 5.096208912659E+02);
-    csum_ref[4] = dcomplex_create(5.142378756213E+02, 5.101023387619E+02);
-    csum_ref[5] = dcomplex_create(5.139626667737E+02, 5.103976610617E+02);
-    csum_ref[6] = dcomplex_create(5.137423460082E+02, 5.105948019802E+02);
-    csum_ref[7] = dcomplex_create(5.135547056878E+02, 5.107404165783E+02);
-    csum_ref[8] = dcomplex_create(5.133910925466E+02, 5.108576573661E+02);
-    csum_ref[9] = dcomplex_create(5.132470705390E+02, 5.109577278523E+02);
-    csum_ref[10] = dcomplex_create(5.131197729984E+02, 5.110460304483E+02);
-    csum_ref[11] = dcomplex_create(5.130070319283E+02, 5.111252433800E+02);
-    csum_ref[12] = dcomplex_create(5.129070537032E+02, 5.111968077718E+02);
-    csum_ref[13] = dcomplex_create(5.128182883502E+02, 5.112616233064E+02);
-    csum_ref[14] = dcomplex_create(5.127393733383E+02, 5.113203605551E+02);
-    csum_ref[15] = dcomplex_create(5.126691062020E+02, 5.113735928093E+02);
-    csum_ref[16] = dcomplex_create(5.126064276004E+02, 5.114218460548E+02);
-    csum_ref[17] = dcomplex_create(5.125504076570E+02, 5.114656139760E+02);
-    csum_ref[18] = dcomplex_create(5.125002331720E+02, 5.115053595966E+02);
-    csum_ref[19] = dcomplex_create(5.124551951846E+02, 5.115415130407E+02);
-    csum_ref[20] = dcomplex_create(5.124146770029E+02, 5.115744692211E+02);
+    csum_ref[1] = fcomplex_create(5.177643571579E+02f, 5.077803458597E+02f);
+    csum_ref[2] = fcomplex_create(5.154521291263E+02f, 5.088249431599E+02f);
+    csum_ref[3] = fcomplex_create(5.146409228649E+02f, 5.096208912659E+02f);
+    csum_ref[4] = fcomplex_create(5.142378756213E+02f, 5.101023387619E+02f);
+    csum_ref[5] = fcomplex_create(5.139626667737E+02f, 5.103976610617E+02f);
+    csum_ref[6] = fcomplex_create(5.137423460082E+02f, 5.105948019802E+02f);
+    csum_ref[7] = fcomplex_create(5.135547056878E+02f, 5.107404165783E+02f);
+    csum_ref[8] = fcomplex_create(5.133910925466E+02f, 5.108576573661E+02f);
+    csum_ref[9] = fcomplex_create(5.132470705390E+02f, 5.109577278523E+02f);
+    csum_ref[10] = fcomplex_create(5.131197729984E+02f, 5.110460304483E+02f);
+    csum_ref[11] = fcomplex_create(5.130070319283E+02f, 5.111252433800E+02f);
+    csum_ref[12] = fcomplex_create(5.129070537032E+02f, 5.111968077718E+02f);
+    csum_ref[13] = fcomplex_create(5.128182883502E+02f, 5.112616233064E+02f);
+    csum_ref[14] = fcomplex_create(5.127393733383E+02f, 5.113203605551E+02f);
+    csum_ref[15] = fcomplex_create(5.126691062020E+02f, 5.113735928093E+02f);
+    csum_ref[16] = fcomplex_create(5.126064276004E+02f, 5.114218460548E+02f);
+    csum_ref[17] = fcomplex_create(5.125504076570E+02f, 5.114656139760E+02f);
+    csum_ref[18] = fcomplex_create(5.125002331720E+02f, 5.115053595966E+02f);
+    csum_ref[19] = fcomplex_create(5.124551951846E+02f, 5.115415130407E+02f);
+    csum_ref[20] = fcomplex_create(5.124146770029E+02f, 5.115744692211E+02f);
   } else if (d1 == 512 && d2 == 512 && d3 == 512 && nt == 20) {
     /*
      * ---------------------------------------------------------------------
@@ -1689,26 +1709,26 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
      * ---------------------------------------------------------------------
      */
     *class_npb = 'C';
-    csum_ref[1] = dcomplex_create(5.195078707457E+02, 5.149019699238E+02);
-    csum_ref[2] = dcomplex_create(5.155422171134E+02, 5.127578201997E+02);
-    csum_ref[3] = dcomplex_create(5.144678022222E+02, 5.122251847514E+02);
-    csum_ref[4] = dcomplex_create(5.140150594328E+02, 5.121090289018E+02);
-    csum_ref[5] = dcomplex_create(5.137550426810E+02, 5.121143685824E+02);
-    csum_ref[6] = dcomplex_create(5.135811056728E+02, 5.121496764568E+02);
-    csum_ref[7] = dcomplex_create(5.134569343165E+02, 5.121870921893E+02);
-    csum_ref[8] = dcomplex_create(5.133651975661E+02, 5.122193250322E+02);
-    csum_ref[9] = dcomplex_create(5.132955192805E+02, 5.122454735794E+02);
-    csum_ref[10] = dcomplex_create(5.132410471738E+02, 5.122663649603E+02);
-    csum_ref[11] = dcomplex_create(5.131971141679E+02, 5.122830879827E+02);
-    csum_ref[12] = dcomplex_create(5.131605205716E+02, 5.122965869718E+02);
-    csum_ref[13] = dcomplex_create(5.131290734194E+02, 5.123075927445E+02);
-    csum_ref[14] = dcomplex_create(5.131012720314E+02, 5.123166486553E+02);
-    csum_ref[15] = dcomplex_create(5.130760908195E+02, 5.123241541685E+02);
-    csum_ref[16] = dcomplex_create(5.130528295923E+02, 5.123304037599E+02);
-    csum_ref[17] = dcomplex_create(5.130310107773E+02, 5.123356167976E+02);
-    csum_ref[18] = dcomplex_create(5.130103090133E+02, 5.123399592211E+02);
-    csum_ref[19] = dcomplex_create(5.129905029333E+02, 5.123435588985E+02);
-    csum_ref[20] = dcomplex_create(5.129714421109E+02, 5.123465164008E+02);
+    csum_ref[1] = fcomplex_create(5.195078707457E+02f, 5.149019699238E+02f);
+    csum_ref[2] = fcomplex_create(5.155422171134E+02f, 5.127578201997E+02f);
+    csum_ref[3] = fcomplex_create(5.144678022222E+02f, 5.122251847514E+02f);
+    csum_ref[4] = fcomplex_create(5.140150594328E+02f, 5.121090289018E+02f);
+    csum_ref[5] = fcomplex_create(5.137550426810E+02f, 5.121143685824E+02f);
+    csum_ref[6] = fcomplex_create(5.135811056728E+02f, 5.121496764568E+02f);
+    csum_ref[7] = fcomplex_create(5.134569343165E+02f, 5.121870921893E+02f);
+    csum_ref[8] = fcomplex_create(5.133651975661E+02f, 5.122193250322E+02f);
+    csum_ref[9] = fcomplex_create(5.132955192805E+02f, 5.122454735794E+02f);
+    csum_ref[10] = fcomplex_create(5.132410471738E+02f, 5.122663649603E+02f);
+    csum_ref[11] = fcomplex_create(5.131971141679E+02f, 5.122830879827E+02f);
+    csum_ref[12] = fcomplex_create(5.131605205716E+02f, 5.122965869718E+02f);
+    csum_ref[13] = fcomplex_create(5.131290734194E+02f, 5.123075927445E+02f);
+    csum_ref[14] = fcomplex_create(5.131012720314E+02f, 5.123166486553E+02f);
+    csum_ref[15] = fcomplex_create(5.130760908195E+02f, 5.123241541685E+02f);
+    csum_ref[16] = fcomplex_create(5.130528295923E+02f, 5.123304037599E+02f);
+    csum_ref[17] = fcomplex_create(5.130310107773E+02f, 5.123356167976E+02f);
+    csum_ref[18] = fcomplex_create(5.130103090133E+02f, 5.123399592211E+02f);
+    csum_ref[19] = fcomplex_create(5.129905029333E+02f, 5.123435588985E+02f);
+    csum_ref[20] = fcomplex_create(5.129714421109E+02f, 5.123465164008E+02f);
   } else if (d1 == 2048 && d2 == 1024 && d3 == 1024 && nt == 25) {
     /*
      * ---------------------------------------------------------------------
@@ -1716,31 +1736,31 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
      * ---------------------------------------------------------------------
      */
     *class_npb = 'D';
-    csum_ref[1] = dcomplex_create(5.122230065252E+02, 5.118534037109E+02);
-    csum_ref[2] = dcomplex_create(5.120463975765E+02, 5.117061181082E+02);
-    csum_ref[3] = dcomplex_create(5.119865766760E+02, 5.117096364601E+02);
-    csum_ref[4] = dcomplex_create(5.119518799488E+02, 5.117373863950E+02);
-    csum_ref[5] = dcomplex_create(5.119269088223E+02, 5.117680347632E+02);
-    csum_ref[6] = dcomplex_create(5.119082416858E+02, 5.117967875532E+02);
-    csum_ref[7] = dcomplex_create(5.118943814638E+02, 5.118225281841E+02);
-    csum_ref[8] = dcomplex_create(5.118842385057E+02, 5.118451629348E+02);
-    csum_ref[9] = dcomplex_create(5.118769435632E+02, 5.118649119387E+02);
-    csum_ref[10] = dcomplex_create(5.118718203448E+02, 5.118820803844E+02);
-    csum_ref[11] = dcomplex_create(5.118683569061E+02, 5.118969781011E+02);
-    csum_ref[12] = dcomplex_create(5.118661708593E+02, 5.119098918835E+02);
-    csum_ref[13] = dcomplex_create(5.118649768950E+02, 5.119210777066E+02);
-    csum_ref[14] = dcomplex_create(5.118645605626E+02, 5.119307604484E+02);
-    csum_ref[15] = dcomplex_create(5.118647586618E+02, 5.119391362671E+02);
-    csum_ref[16] = dcomplex_create(5.118654451572E+02, 5.119463757241E+02);
-    csum_ref[17] = dcomplex_create(5.118665212451E+02, 5.119526269238E+02);
-    csum_ref[18] = dcomplex_create(5.118679083821E+02, 5.119580184108E+02);
-    csum_ref[19] = dcomplex_create(5.118695433664E+02, 5.119626617538E+02);
-    csum_ref[20] = dcomplex_create(5.118713748264E+02, 5.119666538138E+02);
-    csum_ref[21] = dcomplex_create(5.118733606701E+02, 5.119700787219E+02);
-    csum_ref[22] = dcomplex_create(5.118754661974E+02, 5.119730095953E+02);
-    csum_ref[23] = dcomplex_create(5.118776626738E+02, 5.119755100241E+02);
-    csum_ref[24] = dcomplex_create(5.118799262314E+02, 5.119776353561E+02);
-    csum_ref[25] = dcomplex_create(5.118822370068E+02, 5.119794338060E+02);
+    csum_ref[1] = fcomplex_create(5.122230065252E+02f, 5.118534037109E+02f);
+    csum_ref[2] = fcomplex_create(5.120463975765E+02f, 5.117061181082E+02f);
+    csum_ref[3] = fcomplex_create(5.119865766760E+02f, 5.117096364601E+02f);
+    csum_ref[4] = fcomplex_create(5.119518799488E+02f, 5.117373863950E+02f);
+    csum_ref[5] = fcomplex_create(5.119269088223E+02f, 5.117680347632E+02f);
+    csum_ref[6] = fcomplex_create(5.119082416858E+02f, 5.117967875532E+02f);
+    csum_ref[7] = fcomplex_create(5.118943814638E+02f, 5.118225281841E+02f);
+    csum_ref[8] = fcomplex_create(5.118842385057E+02f, 5.118451629348E+02f);
+    csum_ref[9] = fcomplex_create(5.118769435632E+02f, 5.118649119387E+02f);
+    csum_ref[10] = fcomplex_create(5.118718203448E+02f, 5.118820803844E+02f);
+    csum_ref[11] = fcomplex_create(5.118683569061E+02f, 5.118969781011E+02f);
+    csum_ref[12] = fcomplex_create(5.118661708593E+02f, 5.119098918835E+02f);
+    csum_ref[13] = fcomplex_create(5.118649768950E+02f, 5.119210777066E+02f);
+    csum_ref[14] = fcomplex_create(5.118645605626E+02f, 5.119307604484E+02f);
+    csum_ref[15] = fcomplex_create(5.118647586618E+02f, 5.119391362671E+02f);
+    csum_ref[16] = fcomplex_create(5.118654451572E+02f, 5.119463757241E+02f);
+    csum_ref[17] = fcomplex_create(5.118665212451E+02f, 5.119526269238E+02f);
+    csum_ref[18] = fcomplex_create(5.118679083821E+02f, 5.119580184108E+02f);
+    csum_ref[19] = fcomplex_create(5.118695433664E+02f, 5.119626617538E+02f);
+    csum_ref[20] = fcomplex_create(5.118713748264E+02f, 5.119666538138E+02f);
+    csum_ref[21] = fcomplex_create(5.118733606701E+02f, 5.119700787219E+02f);
+    csum_ref[22] = fcomplex_create(5.118754661974E+02f, 5.119730095953E+02f);
+    csum_ref[23] = fcomplex_create(5.118776626738E+02f, 5.119755100241E+02f);
+    csum_ref[24] = fcomplex_create(5.118799262314E+02f, 5.119776353561E+02f);
+    csum_ref[25] = fcomplex_create(5.118822370068E+02f, 5.119794338060E+02f);
   } else if (d1 == 4096 && d2 == 2048 && d3 == 2048 && nt == 25) {
     /*
      * ---------------------------------------------------------------------
@@ -1748,38 +1768,40 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
      * ---------------------------------------------------------------------
      */
     *class_npb = 'E';
-    csum_ref[1] = dcomplex_create(5.121601045346E+02, 5.117395998266E+02);
-    csum_ref[2] = dcomplex_create(5.120905403678E+02, 5.118614716182E+02);
-    csum_ref[3] = dcomplex_create(5.120623229306E+02, 5.119074203747E+02);
-    csum_ref[4] = dcomplex_create(5.120438418997E+02, 5.119345900733E+02);
-    csum_ref[5] = dcomplex_create(5.120311521872E+02, 5.119551325550E+02);
-    csum_ref[6] = dcomplex_create(5.120226088809E+02, 5.119720179919E+02);
-    csum_ref[7] = dcomplex_create(5.120169296534E+02, 5.119861371665E+02);
-    csum_ref[8] = dcomplex_create(5.120131225172E+02, 5.119979364402E+02);
-    csum_ref[9] = dcomplex_create(5.120104767108E+02, 5.120077674092E+02);
-    csum_ref[10] = dcomplex_create(5.120085127969E+02, 5.120159443121E+02);
-    csum_ref[11] = dcomplex_create(5.120069224127E+02, 5.120227453670E+02);
-    csum_ref[12] = dcomplex_create(5.120055158164E+02, 5.120284096041E+02);
-    csum_ref[13] = dcomplex_create(5.120041820159E+02, 5.120331373793E+02);
-    csum_ref[14] = dcomplex_create(5.120028605402E+02, 5.120370938679E+02);
-    csum_ref[15] = dcomplex_create(5.120015223011E+02, 5.120404138831E+02);
-    csum_ref[16] = dcomplex_create(5.120001570022E+02, 5.120432068837E+02);
-    csum_ref[17] = dcomplex_create(5.119987650555E+02, 5.120455615860E+02);
-    csum_ref[18] = dcomplex_create(5.119973525091E+02, 5.120475499442E+02);
-    csum_ref[19] = dcomplex_create(5.119959279472E+02, 5.120492304629E+02);
-    csum_ref[20] = dcomplex_create(5.119945006558E+02, 5.120506508902E+02);
-    csum_ref[21] = dcomplex_create(5.119930795911E+02, 5.120518503782E+02);
-    csum_ref[22] = dcomplex_create(5.119916728462E+02, 5.120528612016E+02);
-    csum_ref[23] = dcomplex_create(5.119902874185E+02, 5.120537101195E+02);
-    csum_ref[24] = dcomplex_create(5.119889291565E+02, 5.120544194514E+02);
-    csum_ref[25] = dcomplex_create(5.119876028049E+02, 5.120550079284E+02);
+    csum_ref[1] = fcomplex_create(5.121601045346E+02f, 5.117395998266E+02f);
+    csum_ref[2] = fcomplex_create(5.120905403678E+02f, 5.118614716182E+02f);
+    csum_ref[3] = fcomplex_create(5.120623229306E+02f, 5.119074203747E+02f);
+    csum_ref[4] = fcomplex_create(5.120438418997E+02f, 5.119345900733E+02f);
+    csum_ref[5] = fcomplex_create(5.120311521872E+02f, 5.119551325550E+02f);
+    csum_ref[6] = fcomplex_create(5.120226088809E+02f, 5.119720179919E+02f);
+    csum_ref[7] = fcomplex_create(5.120169296534E+02f, 5.119861371665E+02f);
+    csum_ref[8] = fcomplex_create(5.120131225172E+02f, 5.119979364402E+02f);
+    csum_ref[9] = fcomplex_create(5.120104767108E+02f, 5.120077674092E+02f);
+    csum_ref[10] = fcomplex_create(5.120085127969E+02f, 5.120159443121E+02f);
+    csum_ref[11] = fcomplex_create(5.120069224127E+02f, 5.120227453670E+02f);
+    csum_ref[12] = fcomplex_create(5.120055158164E+02f, 5.120284096041E+02f);
+    csum_ref[13] = fcomplex_create(5.120041820159E+02f, 5.120331373793E+02f);
+    csum_ref[14] = fcomplex_create(5.120028605402E+02f, 5.120370938679E+02f);
+    csum_ref[15] = fcomplex_create(5.120015223011E+02f, 5.120404138831E+02f);
+    csum_ref[16] = fcomplex_create(5.120001570022E+02f, 5.120432068837E+02f);
+    csum_ref[17] = fcomplex_create(5.119987650555E+02f, 5.120455615860E+02f);
+    csum_ref[18] = fcomplex_create(5.119973525091E+02f, 5.120475499442E+02f);
+    csum_ref[19] = fcomplex_create(5.119959279472E+02f, 5.120492304629E+02f);
+    csum_ref[20] = fcomplex_create(5.119945006558E+02f, 5.120506508902E+02f);
+    csum_ref[21] = fcomplex_create(5.119930795911E+02f, 5.120518503782E+02f);
+    csum_ref[22] = fcomplex_create(5.119916728462E+02f, 5.120528612016E+02f);
+    csum_ref[23] = fcomplex_create(5.119902874185E+02f, 5.120537101195E+02f);
+    csum_ref[24] = fcomplex_create(5.119889291565E+02f, 5.120544194514E+02f);
+    csum_ref[25] = fcomplex_create(5.119876028049E+02f, 5.120550079284E+02f);
   }
   if (*class_npb != 'U') {
     *verified = TRUE;
     for (i = 1; i <= nt; i++) {
-      err = dcomplex_abs(
-          dcomplex_div(dcomplex_sub(sums[i], csum_ref[i]), csum_ref[i]));
+      err = fcomplex_abs(
+          fcomplex_div(fcomplex_sub(sums[i], csum_ref[i]), csum_ref[i]));
       if (!(err <= epsilon)) {
+        printf(" verify i=%d err=%e sums=(%e,%e) ref=(%e,%e)\n", i, err,
+               sums[i].real, sums[i].imag, csum_ref[i].real, csum_ref[i].imag);
         *verified = FALSE;
         break;
       }
@@ -1795,7 +1817,7 @@ static void verify(int d1, int d2, int d3, int nt, boolean *verified,
   printf(" class_npb = %c\n", *class_npb);
 }
 
-__device__ void vranlc_device(int n, double *x_seed, double a, double y[]) {
+__device__ void vranlc_device(int n, double *x_seed, double a, float y[]) {
   int i;
   double x, t1, t2, t3, t4, a1, a2, x1, x2, z;
   t1 = R23 * a;
@@ -1812,7 +1834,7 @@ __device__ void vranlc_device(int n, double *x_seed, double a, double y[]) {
     t3 = T23 * z + a2 * x2;
     t4 = (int)(R46 * t3);
     x = t3 - T46 * t4;
-    y[i] = R46 * x;
+    y[i] = (float)(R46 * x);
   }
   *x_seed = x;
 }
