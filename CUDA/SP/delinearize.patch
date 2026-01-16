@@ -1,0 +1,135 @@
+--- 
++++ 
+@@ -90,7 +90,8 @@
+ 
+ /* gpu linear pattern */
+ #define u(m,i,j,k) u[(i)+nx*((j)+ny*((k)+nz*(m)))]
+-#define forcing(m,i,j,k) forcing[(i)+nx*((j)+ny*((k)+nz*(m)))]
++/* forcing is passed to kernels as forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE] */
++#define forcing(m,i,j,k) forcing[(m)*PROBLEM_SIZE+(k)][(j)][(i)]
+ #define rhs(m,i,j,k) rhs[m+(i)*5+(j)*5*nx+(k)*5*nx*ny]
+ #define rho_i(i,j,k) rho_i[i+(j)*nx+(k)*nx*ny]
+ #define us(i,j,k) us[i+(j)*nx+(k)*nx*ny]
+@@ -246,7 +247,7 @@
+ 		const double* qs, 
+ 		const double* square, 
+ 		double* rhs, 
+-		const double* forcing, 
++		const double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const double* u, 
+ 		const int nx, 
+ 		const int ny, 
+@@ -262,19 +263,19 @@
+ 		const int ny,
+ 		const int nz);	
+ static void exact_rhs_gpu();	
+-__global__ static void exact_rhs_gpu_kernel_1(double* forcing, 
++__global__ static void exact_rhs_gpu_kernel_1(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void exact_rhs_gpu_kernel_2(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_2(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void exact_rhs_gpu_kernel_3(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_3(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void exact_rhs_gpu_kernel_4(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_4(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+@@ -682,7 +683,7 @@
+ 				qs_device, 
+ 				square_device, 
+ 				rhs_device, 
+-				forcing_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				u_device, 
+ 				nx, 
+ 				ny, 
+@@ -745,7 +746,7 @@
+ 		const double* qs, 
+ 		const double* square, 
+ 		double* rhs, 
+-		const double* forcing, 
++		const double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const double* u, 
+ 		const int nx, 
+ 		const int ny, 
+@@ -983,7 +984,7 @@
+ 	exact_rhs_gpu_kernel_1<<<
+ 		rhs1_blocks_per_grid,
+ 		rhs1_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1007,7 +1008,7 @@
+ 	exact_rhs_gpu_kernel_2<<<
+ 		rhs2_blocks_per_grid,
+ 		rhs2_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1031,7 +1032,7 @@
+ 	exact_rhs_gpu_kernel_3<<<
+ 		rhs3_blocks_per_grid, 
+ 		rhs3_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1055,7 +1056,7 @@
+ 	exact_rhs_gpu_kernel_4<<<
+ 		rhs4_blocks_per_grid, 
+ 		rhs4_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1064,7 +1065,7 @@
+ #endif
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_1(double* forcing, 
++__global__ static void exact_rhs_gpu_kernel_1(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1093,7 +1094,7 @@
+ 	forcing(4,i,j,k)=0.0;
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_2(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_2(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1173,7 +1174,7 @@
+ 	}
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_3(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_3(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1253,7 +1254,7 @@
+ 	}
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_4(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_4(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
