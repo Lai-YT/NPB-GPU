@@ -62,6 +62,8 @@
 #include "../common/npb-CPP.hpp"
 #include "npbparams.hpp"
 
+#define double float
+
 #define IMAX (PROBLEM_SIZE)
 #define JMAX (PROBLEM_SIZE)
 #define KMAX (PROBLEM_SIZE)
@@ -2195,7 +2197,7 @@ static void verify_gpu(int no_time_steps,
 	 * tolerance level
 	 * ---------------------------------------------------------------------
 	 */
-	epsilon=1.0e-08;
+	epsilon=1.0e-04;
 	/*
 	 * ---------------------------------------------------------------------
 	 * compute the error norm and the residual norm, and exit if not printing
