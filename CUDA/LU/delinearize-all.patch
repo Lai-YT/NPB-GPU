@@ -1,0 +1,717 @@
+diff --git a/CUDA/LU/lu.cu b/CUDA/LU/lu.cu
+index 4200e5f..784ce4c 100644
+--- a/CUDA/LU/lu.cu
++++ b/CUDA/LU/lu.cu
+@@ -122,12 +122,17 @@
+ #define PROFILING_SSOR_2 (23)
+ 
+ /* gpu linear pattern */
+-#define u(m,i,j,k) u[(m)+5*((i)+nx*((j)+ny*(k)))]
+-#define v(m,i,j,k) v[(m)+5*((i)+nx*((j)+ny*(k)))]
+-#define rsd(m,i,j,k) rsd[(m)+5*((i)+nx*((j)+ny*(k)))]
+-#define frct(m,i,j,k) frct[(m)+5*((i)+nx*((j)+ny*(k)))]
+-#define rho_i(i,j,k) rho_i[(i)+nx*((j)+ny*(k))]
+-#define qs(i,j,k) qs[(i)+nx*((j)+ny*(k))]
++/*
++ * Delinearized views (nx == ISIZ1, ny == ISIZ2, nz == ISIZ3).
++ * 5-component fields are passed as arr[nz][ny][nx*5] (merge m into i).
++ * Scalar fields are passed as arr[nz][ny][nx].
++ */
++#define u(m,i,j,k) u[(k)][(j)][(i)*5+(m)]
++#define v(m,i,j,k) v[(k)][(j)][(i)*5+(m)]
++#define rsd(m,i,j,k) rsd[(k)][(j)][(i)*5+(m)]
++#define frct(m,i,j,k) frct[(k)][(j)][(i)*5+(m)]
++#define rho_i(i,j,k) rho_i[(k)][(j)][(i)]
++#define qs(i,j,k) qs[(k)][(j)][(i)]
+ 
+ /* global variables */
+ #if defined(DO_NOT_ALLOCATE_ARRAYS_WITH_DYNAMIC_MEMORY_AND_AS_SINGLE_DIMENSION)
+@@ -225,28 +230,29 @@ namespace constants_device{
+ 
+ /* function prototypes */
+ static void erhs_gpu();
+-__global__ static void erhs_gpu_kernel_1(double* frct,
+-		double* rsd,
++
++__global__ static void erhs_gpu_kernel_1(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void erhs_gpu_kernel_2(double* frct,
+-		const double* rsd,
++__global__ static void erhs_gpu_kernel_2(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void erhs_gpu_kernel_3(double* frct,
+-		const double* rsd,
++__global__ static void erhs_gpu_kernel_3(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void erhs_gpu_kernel_4(double* frct,
+-		const double* rsd,
++__global__ static void erhs_gpu_kernel_4(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+ static void error_gpu();
+-__global__ static void error_gpu_kernel(const double* u,
++__global__ static void error_gpu_kernel(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* errnm,
+ 		const int nx,
+ 		const int ny,
+@@ -261,26 +267,26 @@ __device__ static void exact_gpu_device(const int i,
+ __global__ static void jacld_blts_gpu_kernel(const int plane,
+ 		const int klower,
+ 		const int jlower,
+-		const double* u,
+-		const double* rho_i,
+-		const double* qs,
+-		double* v,
++		const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		double v[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+ __global__ static void jacu_buts_gpu_kernel(const int plane,
+ 		const int klower,
+ 		const int jlower,
+-		const double* u,
+-		const double* rho_i,
+-		const double* qs,
+-		double* v,
++		const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		double v[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-static void l2norm_gpu(const double* v, 
++static void l2norm_gpu(const double v[ISIZ3][ISIZ2][ISIZ1*5], 
+ 		double* sum);
+-__global__ static void l2norm_gpu_kernel(const double* v,
++__global__ static void l2norm_gpu_kernel(const double v[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* sum,
+ 		const int nx,
+ 		const int ny,
+@@ -288,17 +294,17 @@ __global__ static void l2norm_gpu_kernel(const double* v,
+ __global__ static void norm_gpu_kernel(double* rms,
+ 		const int size);
+ static void pintgr_gpu();
+-__global__ static void pintgr_gpu_kernel_1(const double* u,
++__global__ static void pintgr_gpu_kernel_1(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* frc,
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void pintgr_gpu_kernel_2(const double* u,
++__global__ static void pintgr_gpu_kernel_2(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* frc,
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void pintgr_gpu_kernel_3(const double* u,
++__global__ static void pintgr_gpu_kernel_3(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* frc,
+ 		const int nx,
+ 		const int ny,
+@@ -308,62 +314,66 @@ __global__ static void pintgr_gpu_kernel_4(double* frc,
+ static void read_input();
+ static void release_gpu();
+ static void rhs_gpu();
+-__global__ static void rhs_gpu_kernel_1(const double* u,
+-		double* rsd,
+-		const double* frct,
+-		double* qs,
+-		double* rho_i,
++
++__global__ static void rhs_gpu_kernel_1(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		double qs[ISIZ3][ISIZ2][ISIZ1],
++		double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void rhs_gpu_kernel_2(const double* u,
+-		double* rsd,
+-		const double* qs,
+-		const double* rho_i,
++
++__global__ static void rhs_gpu_kernel_2(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void rhs_gpu_kernel_3(const double* u,
+-		double* rsd,
+-		const double* qs,
+-		const double* rho_i,
++
++__global__ static void rhs_gpu_kernel_3(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void rhs_gpu_kernel_4(const double* u,
+-		double* rsd,
+-		const double* qs,
+-		const double* rho_i,
++
++__global__ static void rhs_gpu_kernel_4(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+ static void setbv_gpu();
+-__global__ static void setbv_gpu_kernel_1(double* u,
++__global__ static void setbv_gpu_kernel_1(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void setbv_gpu_kernel_2(double* u,
++__global__ static void setbv_gpu_kernel_2(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void setbv_gpu_kernel_3(double* u,
++__global__ static void setbv_gpu_kernel_3(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+ static void setcoeff_gpu();
+ static void setiv_gpu();
+-__global__ static void setiv_gpu_kernel(double* u,
++__global__ static void setiv_gpu_kernel(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+ static void setup_gpu();
+ static void ssor_gpu(int niter);
+-__global__ static void ssor_gpu_kernel_1(double* rsd,
++__global__ static void ssor_gpu_kernel_1(double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void ssor_gpu_kernel_2(double* u,
+-		double* rsd,
++__global__ static void ssor_gpu_kernel_2(double u[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const double tmp,
+ 		const int nx,
+ 		const int ny,
+@@ -607,8 +617,8 @@ static void erhs_gpu(){
+ 	erhs_gpu_kernel_1<<<
+ 		erhs_1_blocks_per_grid, 
+ 		erhs_1_threads_per_block>>>(
+-				frct_device, 
+-				rsd_device, 
++				(double (*)[ISIZ2][ISIZ1*5])frct_device, 
++				(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -633,8 +643,8 @@ static void erhs_gpu(){
+ 		erhs_2_blocks_per_grid, 
+ 		(min(nx,erhs_2_threads_per_block)),
+ 		sizeof(double)*((2*(min(nx,erhs_2_threads_per_block))*5)+(4*(min(nx,erhs_2_threads_per_block))))>>>(
+-				frct_device, 
+-				rsd_device, 
++				(double (*)[ISIZ2][ISIZ1*5])frct_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -659,8 +669,8 @@ static void erhs_gpu(){
+ 		erhs_3_blocks_per_grid, 
+ 		(min(ny,erhs_3_threads_per_block)),
+ 		sizeof(double)*((2*(min(ny,erhs_3_threads_per_block))*5)+(4*(min(ny,erhs_3_threads_per_block))))>>>(
+-				frct_device, 
+-				rsd_device, 
++				(double (*)[ISIZ2][ISIZ1*5])frct_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -685,8 +695,8 @@ static void erhs_gpu(){
+ 		erhs_4_blocks_per_grid, 
+ 		(min(nz,erhs_4_threads_per_block)),
+ 		sizeof(double)*((2*(min(nz,erhs_4_threads_per_block))*5)+(4*(min(nz,erhs_4_threads_per_block))))>>>(
+-				frct_device, 
+-				rsd_device, 
++				(double (*)[ISIZ2][ISIZ1*5])frct_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -695,8 +705,8 @@ static void erhs_gpu(){
+ #endif
+ }
+ 
+-__global__ static void erhs_gpu_kernel_1(double* frct,
+-		double* rsd,
++__global__ static void erhs_gpu_kernel_1(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -734,8 +744,8 @@ __global__ static void erhs_gpu_kernel_1(double* frct,
+ 	}
+ }
+ 
+-__global__ static void erhs_gpu_kernel_2(double* frct,
+-		const double* rsd,
++__global__ static void erhs_gpu_kernel_2(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -818,8 +828,8 @@ __global__ static void erhs_gpu_kernel_2(double* frct,
+ 	}
+ }
+ 
+-__global__ static void erhs_gpu_kernel_3(double* frct,
+-		const double* rsd,
++__global__ static void erhs_gpu_kernel_3(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -902,8 +912,8 @@ __global__ static void erhs_gpu_kernel_3(double* frct,
+ 	}
+ }
+ 
+-__global__ static void erhs_gpu_kernel_4(double* frct,
+-		const double* rsd,
++__global__ static void erhs_gpu_kernel_4(double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1010,7 +1020,7 @@ static void error_gpu(){
+ 		error_blocks_per_grid,
+ 		(min(nx-2,error_threads_per_block)),
+ 		sizeof(double)*5*(min(nx-2,error_threads_per_block))>>>(
+-				u_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				norm_buffer_device, 
+ 				nx, 
+ 				ny, 
+@@ -1050,7 +1060,7 @@ static void error_gpu(){
+  * compute the solution error
+  * ---------------------------------------------------------------------
+  */
+-__global__ static void error_gpu_kernel(const double* u,
++__global__ static void error_gpu_kernel(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* errnm,
+ 		const int nx,
+ 		const int ny,
+@@ -1124,10 +1134,10 @@ __device__ static void exact_gpu_device(const int i,
+ __global__ static void jacld_blts_gpu_kernel(const int plane,
+ 		const int klower,
+ 		const int jlower,
+-		const double* u,
+-		const double* rho_i,
+-		const double* qs,
+-		double* v,
++		const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		double v[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1361,10 +1371,10 @@ __global__ static void jacld_blts_gpu_kernel(const int plane,
+ __global__ static void jacu_buts_gpu_kernel(const int plane,
+ 		const int klower,
+ 		const int jlower,
+-		const double* u,
+-		const double* rho_i,
+-		const double* qs,
+-		double* v,
++		const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		double v[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1606,7 +1616,7 @@ __global__ static void jacu_buts_gpu_kernel(const int plane,
+  * for even number sizes only.  Only needed in v.
+  * ---------------------------------------------------------------------
+  */
+-static void l2norm_gpu(const double* v,
++static void l2norm_gpu(const double v[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* sum){
+ #if defined(PROFILING)
+ 	timer_start(PROFILING_L2NORM);
+@@ -1659,7 +1669,7 @@ static void l2norm_gpu(const double* v,
+ 	for(int m=0;m<5;m++){sum[m]=sqrt(sum[m]/((double)(nz-2)*(double)(ny-2)*(double)(nx-2)));}
+ }
+ 
+-__global__ static void l2norm_gpu_kernel(const double* v,
++__global__ static void l2norm_gpu_kernel(const double v[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* sum,
+ 		const int nx,
+ 		const int ny,
+@@ -1743,7 +1753,7 @@ static void pintgr_gpu(){
+ 		pintgr_1_blocks_per_grid, 
+ 		final_pintgr_1_threads_per_block,
+ 		(sizeof(double)*3*(pintgr_1_threads_per_block*pintgr_1_threads_per_block))>>>(
+-				u_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				norm_buffer_device, 
+ 				nx, 
+ 				ny, 
+@@ -1776,7 +1786,7 @@ static void pintgr_gpu(){
+ 		pintgr_2_blocks_per_grid, 
+ 		final_pintgr_2_threads_per_block,
+ 		(sizeof(double)*3*(pintgr_2_threads_per_block*pintgr_2_threads_per_block))>>>(
+-				u_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				norm_buffer_device+grid_1_size, 
+ 				nx, 
+ 				ny, 
+@@ -1809,7 +1819,7 @@ static void pintgr_gpu(){
+ 		pintgr_3_blocks_per_grid, 
+ 		final_pintgr_3_threads_per_block,
+ 		(sizeof(double)*3*(pintgr_3_threads_per_block*pintgr_3_threads_per_block))>>>(
+-				u_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				norm_buffer_device+grid_1_size+grid_2_size, 
+ 				nx, 
+ 				ny, 
+@@ -1843,7 +1853,7 @@ static void pintgr_gpu(){
+ 	cudaMemcpy(&frc, norm_buffer_device, sizeof(double), cudaMemcpyDeviceToHost);
+ }
+ 
+-__global__ static void pintgr_gpu_kernel_1(const double* u,
++__global__ static void pintgr_gpu_kernel_1(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* frc,
+ 		const int nx,
+ 		const int ny,
+@@ -1886,7 +1896,7 @@ __global__ static void pintgr_gpu_kernel_1(const double* u,
+ 	if(i==0){frc[blockIdx.y*gridDim.x+blockIdx.x]=frc1[0]*dxi*deta;}
+ }
+ 
+-__global__ static void pintgr_gpu_kernel_2(const double* u,
++__global__ static void pintgr_gpu_kernel_2(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* frc,
+ 		const int nx,
+ 		const int ny,
+@@ -1930,7 +1940,7 @@ __global__ static void pintgr_gpu_kernel_2(const double* u,
+ 	if(i==0){frc[blockIdx.y*gridDim.x+blockIdx.x]=frc2[0]*dxi*dzeta;}
+ }
+ 
+-__global__ static void pintgr_gpu_kernel_3(const double* u,
++__global__ static void pintgr_gpu_kernel_3(const double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		double* frc,
+ 		const int nx,
+ 		const int ny,
+@@ -2100,11 +2110,11 @@ static void rhs_gpu(){
+ 	rhs_gpu_kernel_1<<<
+ 		rhs_1_blocks_per_grid, 
+ 		rhs_1_threads_per_block>>>(
+-				u_device, 
+-				rsd_device, 
+-				frct_device, 
+-				qs_device, 
+-				rho_i_device,
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])frct_device, 
++				(double (*)[ISIZ2][ISIZ1])qs_device, 
++				(double (*)[ISIZ2][ISIZ1])rho_i_device,
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2134,10 +2144,10 @@ static void rhs_gpu(){
+ 		rhs_2_blocks_per_grid, 
+ 		(min(nx,rhs_2_threads_per_block)),
+ 		sizeof(double)*((3*(min(nx,rhs_2_threads_per_block))*5)+(5*(min(nx,rhs_2_threads_per_block))))>>>(
+-				u_device, 
+-				rsd_device, 
+-				qs_device, 
+-				rho_i_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
++				(const double (*)[ISIZ2][ISIZ1])qs_device, 
++				(const double (*)[ISIZ2][ISIZ1])rho_i_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2167,10 +2177,10 @@ static void rhs_gpu(){
+ 		rhs_3_blocks_per_grid, 
+ 		(min(ny,rhs_3_threads_per_block)),
+ 		sizeof(double)*((3*(min(ny,rhs_3_threads_per_block))*5)+(5*(min(ny,rhs_3_threads_per_block))))>>>(
+-				u_device, 
+-				rsd_device, 
+-				qs_device, 
+-				rho_i_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
++				(const double (*)[ISIZ2][ISIZ1])qs_device, 
++				(const double (*)[ISIZ2][ISIZ1])rho_i_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2200,10 +2210,10 @@ static void rhs_gpu(){
+ 		rhs_4_blocks_per_grid, 
+ 		(min(nz,rhs_4_threads_per_block)),
+ 		sizeof(double)*((3*(min(nz,rhs_4_threads_per_block))*5)+(5*(min(nz,rhs_4_threads_per_block))))>>>(
+-				u_device, 
+-				rsd_device, 
+-				qs_device, 
+-				rho_i_device, 
++				(const double (*)[ISIZ2][ISIZ1*5])u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
++				(const double (*)[ISIZ2][ISIZ1])qs_device, 
++				(const double (*)[ISIZ2][ISIZ1])rho_i_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2212,11 +2222,11 @@ static void rhs_gpu(){
+ #endif
+ }
+ 
+-__global__ static void rhs_gpu_kernel_1(const double* u,
+-		double* rsd,
+-		const double* frct,
+-		double* qs,
+-		double* rho_i,
++__global__ static void rhs_gpu_kernel_1(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double frct[ISIZ3][ISIZ2][ISIZ1*5],
++		double qs[ISIZ3][ISIZ2][ISIZ1],
++		double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2238,10 +2248,10 @@ __global__ static void rhs_gpu_kernel_1(const double* u,
+ 	qs(i,j,k)=0.5*(u(1,i,j,k)*u(1,i,j,k)+u(2,i,j,k)*u(2,i,j,k)+u(3,i,j,k)*u(3,i,j,k))*tmp;
+ }
+ 
+-__global__ static void rhs_gpu_kernel_2(const double* u,
+-		double* rsd,
+-		const double* qs,
+-		const double* rho_i,
++__global__ static void rhs_gpu_kernel_2(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2339,10 +2349,10 @@ __global__ static void rhs_gpu_kernel_2(const double* u,
+ 	}
+ }
+ 
+-__global__ static void rhs_gpu_kernel_3(const double* u,
+-		double* rsd,
+-		const double* qs,
+-		const double* rho_i,
++__global__ static void rhs_gpu_kernel_3(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2440,10 +2450,10 @@ __global__ static void rhs_gpu_kernel_3(const double* u,
+ 	}
+ }
+ 
+-__global__ static void rhs_gpu_kernel_4(const double* u,
+-		double* rsd,
+-		const double* qs,
+-		const double* rho_i,
++__global__ static void rhs_gpu_kernel_4(const double u[ISIZ3][ISIZ2][ISIZ1*5],
++		double rsd[ISIZ3][ISIZ2][ISIZ1*5],
++		const double qs[ISIZ3][ISIZ2][ISIZ1],
++		const double rho_i[ISIZ3][ISIZ2][ISIZ1],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2558,7 +2568,7 @@ static void setbv_gpu(){
+ 	setbv_gpu_kernel_3<<<
+ 		setbv_3_blocks_per_grid, 
+ 		setbv_3_threads_per_block>>>(
+-				u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2577,7 +2587,7 @@ static void setbv_gpu(){
+ 	setbv_gpu_kernel_2<<<
+ 		setbv_2_blocks_per_grid, 
+ 		setbv_2_threads_per_block>>>(
+-				u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2596,7 +2606,7 @@ static void setbv_gpu(){
+ 	setbv_gpu_kernel_1<<<
+ 		setbv_1_blocks_per_grid, 
+ 		setbv_1_threads_per_block>>>(
+-				u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2605,7 +2615,7 @@ static void setbv_gpu(){
+ #endif
+ }
+ 
+-__global__ static void setbv_gpu_kernel_1(double* u,
++__global__ static void setbv_gpu_kernel_1(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2646,7 +2656,7 @@ __global__ static void setbv_gpu_kernel_1(double* u,
+ 	}
+ }
+ 
+-__global__ static void setbv_gpu_kernel_2(double* u,
++__global__ static void setbv_gpu_kernel_2(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2687,7 +2697,7 @@ __global__ static void setbv_gpu_kernel_2(double* u,
+ 	}
+ }
+ 
+-__global__ static void setbv_gpu_kernel_3(double* u,
++__global__ static void setbv_gpu_kernel_3(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2934,7 +2944,7 @@ static void setiv_gpu(){
+ 	setiv_gpu_kernel<<<
+ 		setiv_blocks_per_grid, 
+ 		setiv_threads_per_block>>>(
+-				u_device, 
++				(double (*)[ISIZ2][ISIZ1*5])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2943,7 +2953,7 @@ static void setiv_gpu(){
+ #endif
+ }
+ 
+-__global__ static void setiv_gpu_kernel(double* u,
++__global__ static void setiv_gpu_kernel(double u[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -3217,7 +3227,7 @@ static void ssor_gpu(int niter){
+ 	 * compute the L2 norms of newton iteration residuals
+ 	 * ---------------------------------------------------------------------
+ 	 */
+-	l2norm_gpu(rsd_device, rsdnm);
++	l2norm_gpu((const double (*)[ISIZ2][ISIZ1*5])rsd_device, rsdnm);
+ 	timer_clear(PROFILING_TOTAL_TIME);
+ #if defined(PROFILING)
+ 	timer_clear(PROFILING_ERHS_1);
+@@ -3266,7 +3276,7 @@ static void ssor_gpu(int niter){
+ 		ssor_gpu_kernel_1<<<
+ 			ssor_1_blocks_per_grid, 
+ 			max(nx-2, ssor_1_threads_per_block)>>>(
+-					rsd_device, 
++					(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 					nx, 
+ 					ny, 
+ 					nz);
+@@ -3305,10 +3315,10 @@ static void ssor_gpu(int niter){
+ 						plane, 
+ 						klower, 
+ 						jlowermin, 
+-						u_device, 
+-						rho_i_device, 
+-						qs_device, 
+-						rsd_device, 
++						(const double (*)[ISIZ2][ISIZ1*5])u_device, 
++						(const double (*)[ISIZ2][ISIZ1])rho_i_device, 
++						(const double (*)[ISIZ2][ISIZ1])qs_device, 
++						(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 						nx, 
+ 						ny, 
+ 						nz);
+@@ -3348,10 +3358,10 @@ static void ssor_gpu(int niter){
+ 						plane, 
+ 						klower, 
+ 						jlowermin, 
+-						u_device, 
+-						rho_i_device, 
+-						qs_device, 
+-						rsd_device, 
++						(const double (*)[ISIZ2][ISIZ1*5])u_device, 
++						(const double (*)[ISIZ2][ISIZ1])rho_i_device, 
++						(const double (*)[ISIZ2][ISIZ1])qs_device, 
++						(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 						nx, 
+ 						ny, 
+ 						nz);
+@@ -3373,8 +3383,8 @@ static void ssor_gpu(int niter){
+ 		ssor_gpu_kernel_2<<<
+ 			ssor_2_blocks_per_grid, 
+ 			max(nx-2, ssor_2_threads_per_block)>>>(
+-					u_device, 
+-					rsd_device, 
++					(double (*)[ISIZ2][ISIZ1*5])u_device, 
++					(double (*)[ISIZ2][ISIZ1*5])rsd_device, 
+ 					tmp, 
+ 					nx, 
+ 					ny, 
+@@ -3389,7 +3399,7 @@ static void ssor_gpu(int niter){
+ 		 */
+ 		if(istep%inorm==0){
+ 			double delunm[5];
+-			l2norm_gpu(rsd_device, delunm);
++			l2norm_gpu((const double (*)[ISIZ2][ISIZ1*5])rsd_device, delunm);
+ 		}
+ 		/*
+ 		 * ---------------------------------------------------------------------
+@@ -3403,7 +3413,7 @@ static void ssor_gpu(int niter){
+ 		 * ---------------------------------------------------------------------
+ 		 */
+ 		if(istep%inorm==0){
+-			l2norm_gpu(rsd_device, rsdnm);
++			l2norm_gpu((const double (*)[ISIZ2][ISIZ1*5])rsd_device, rsdnm);
+ 		}
+ 		/*
+ 		 * ---------------------------------------------------------------------
+@@ -3419,7 +3429,7 @@ static void ssor_gpu(int niter){
+ 	maxtime=timer_read(PROFILING_TOTAL_TIME);
+ }
+ 
+-__global__ static void ssor_gpu_kernel_1(double* rsd,
++__global__ static void ssor_gpu_kernel_1(double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -3441,8 +3451,8 @@ __global__ static void ssor_gpu_kernel_1(double* rsd,
+ 	rsd(4,i,j,k)*=dt;
+ }
+ 
+-__global__ static void ssor_gpu_kernel_2(double* u,
+-		double* rsd,
++__global__ static void ssor_gpu_kernel_2(double u[ISIZ3][ISIZ2][ISIZ1*5],
++		const double rsd[ISIZ3][ISIZ2][ISIZ1*5],
+ 		const double tmp,
+ 		const int nx,
+ 		const int ny,
