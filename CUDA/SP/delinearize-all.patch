@@ -1,0 +1,598 @@
+diff --git a/CUDA/SP/sp.cu b/CUDA/SP/sp.cu
+index b2c3543..6a4e86e 100644
+--- a/CUDA/SP/sp.cu
++++ b/CUDA/SP/sp.cu
+@@ -88,17 +88,17 @@
+ #define PROFILING_Y_SOLVE (15)
+ #define PROFILING_Z_SOLVE (16)
+ 
+-/* gpu linear pattern */
+-#define u(m,i,j,k) u[(i)+nx*((j)+ny*((k)+nz*(m)))]
+-#define forcing(m,i,j,k) forcing[(i)+nx*((j)+ny*((k)+nz*(m)))]
+-#define rhs(m,i,j,k) rhs[m+(i)*5+(j)*5*nx+(k)*5*nx*ny]
+-#define rho_i(i,j,k) rho_i[i+(j)*nx+(k)*nx*ny]
+-#define us(i,j,k) us[i+(j)*nx+(k)*nx*ny]
+-#define vs(i,j,k) vs[i+(j)*nx+(k)*nx*ny]
+-#define ws(i,j,k) ws[i+(j)*nx+(k)*nx*ny]
+-#define square(i,j,k) square[i+(j)*nx+(k)*nx*ny]
+-#define qs(i,j,k) qs[i+(j)*nx+(k)*nx*ny]
+-#define speed(i,j,k) speed[i+(j)*nx+(k)*nx*ny]
++/* gpu delinearized pattern */
++#define u(m,i,j,k) u[(m)*PROBLEM_SIZE+(k)][(j)][(i)]
++#define forcing(m,i,j,k) forcing[(m)*PROBLEM_SIZE+(k)][(j)][(i)]
++#define rhs(m,i,j,k) rhs[(m)*PROBLEM_SIZE+(k)][(j)][(i)]
++#define rho_i(i,j,k) rho_i[(k)][(j)][(i)]
++#define us(i,j,k) us[(k)][(j)][(i)]
++#define vs(i,j,k) vs[(k)][(j)][(i)]
++#define ws(i,j,k) ws[(k)][(j)][(i)]
++#define square(i,j,k) square[(k)][(j)][(i)]
++#define qs(i,j,k) qs[(k)][(j)][(i)]
++#define speed(i,j,k) speed[(k)][(j)][(i)]
+ 
+ /* global variables */
+ #if defined(DO_NOT_ALLOCATE_ARRAYS_WITH_DYNAMIC_MEMORY_AND_AS_SINGLE_DIMENSION)
+@@ -221,39 +221,39 @@ namespace constants_device{
+ 
+ /* function prototypes */
+ static void add_gpu();
+-__global__ static void add_gpu_kernel(double* u, 
+-		const double* rhs, 
++__global__ static void add_gpu_kernel(double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz);
+ static void adi_gpu();
+ static void compute_rhs_gpu();
+-__global__ static void compute_rhs_gpu_kernel_1(double* rho_i, 
+-		double* us, 
+-		double* vs, 
+-		double* ws, 
+-		double* speed, 
+-		double* qs, 
+-		double* square, 
+-		const double* u, 
++__global__ static void compute_rhs_gpu_kernel_1(double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double square[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz);
+-__global__ static void compute_rhs_gpu_kernel_2(const double* rho_i, 
+-		const double* us, 
+-		const double* vs, 
+-		const double* ws, 
+-		const double* qs, 
+-		const double* square, 
+-		double* rhs, 
+-		const double* forcing, 
+-		const double* u, 
++__global__ static void compute_rhs_gpu_kernel_2(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double square[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz);
+ static void error_norm_gpu(double rms[]);
+ __global__ static void error_norm_gpu_kernel_1(double* rms,
+-		const double* u,
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+@@ -262,19 +262,19 @@ __global__ static void error_norm_gpu_kernel_2(double* rms,
+ 		const int ny,
+ 		const int nz);	
+ static void exact_rhs_gpu();	
+-__global__ static void exact_rhs_gpu_kernel_1(double* forcing, 
++__global__ static void exact_rhs_gpu_kernel_1(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void exact_rhs_gpu_kernel_2(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_2(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void exact_rhs_gpu_kernel_3(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_3(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+-__global__ static void exact_rhs_gpu_kernel_4(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_4(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+@@ -283,14 +283,14 @@ __device__ static void exact_solution_gpu_device(const double xi,
+ 		const double zeta,
+ 		double* dtemp);		
+ static void initialize_gpu();
+-__global__ static void initialize_gpu_kernel(double* u,
++__global__ static void initialize_gpu_kernel(double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+ static void release_gpu();
+ static void rhs_norm_gpu(double rms[]);
+ __global__ static void rhs_norm_gpu_kernel_1(double* rms,
+-		const double* rhs,
++		const double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz);
+@@ -301,13 +301,13 @@ __global__ static void rhs_norm_gpu_kernel_2(double* rms,
+ static void set_constants();
+ static void setup_gpu();
+ static void txinvr_gpu();
+-__global__ static void txinvr_gpu_kernel(const double* rho_i, 
+-		const double* us, 
+-		const double* vs, 
+-		const double* ws, 
+-		const double* speed, 
+-		const double* qs, 
+-		double* rhs, 
++__global__ static void txinvr_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz);
+@@ -315,34 +315,34 @@ static void verify_gpu(int no_time_steps,
+ 		char* class_npb,
+ 		boolean* verified);
+ static void x_solve_gpu();
+-__global__ static void x_solve_gpu_kernel(const double* rho_i, 
+-		const double* us, 
+-		const double* speed, 
+-		double* rhs, 
++__global__ static void x_solve_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		double* lhs, 
+ 		double* rhstmp, 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz);
+ static void y_solve_gpu();
+-__global__ static void y_solve_gpu_kernel(const double* rho_i, 
+-		const double* vs, 
+-		const double* speed, 
+-		double* rhs, 
++__global__ static void y_solve_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		double* lhs, 
+ 		double* rhstmp, 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz);
+ static void z_solve_gpu();
+-__global__ static void z_solve_gpu_kernel(const double* rho_i,
+-		const double* us,
+-		const double* vs,
+-		const double* ws,
+-		const double* speed,
+-		const double* qs,
+-		const double* u,
+-		double* rhs,
++__global__ static void z_solve_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		double* lhs,
+ 		double* rhstmp,
+ 		const int nx,
+@@ -583,8 +583,8 @@ static void add_gpu(){
+ 	add_gpu_kernel<<<
+ 		add_blocks_per_grid, 
+ 		add_threads_per_block>>>(
+-				u_device, 
+-				rhs_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])u_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rhs_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -598,8 +598,8 @@ static void add_gpu(){
+  * addition of update to the vector u
+  * ---------------------------------------------------------------------
+  */
+-__global__ static void add_gpu_kernel(double* u,
+-		const double* rhs,
++__global__ static void add_gpu_kernel(double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -644,14 +644,14 @@ static void compute_rhs_gpu(){
+ 	compute_rhs_gpu_kernel_1<<<
+ 		compute_rhs_1_blocks_per_grid,
+ 		compute_rhs_1_threads_per_block>>>(
+-				rho_i_device, 
+-				us_device, 
+-				vs_device, 
+-				ws_device, 
+-				speed_device, 
+-				qs_device, 
+-				square_device, 
+-				u_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rho_i_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])us_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])vs_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])ws_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])speed_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])qs_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])square_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -675,15 +675,15 @@ static void compute_rhs_gpu(){
+ 	compute_rhs_gpu_kernel_2<<<
+ 		compute_rhs_2_blocks_per_grid, 
+ 		compute_rhs_2_threads_per_block>>>(
+-				rho_i_device, 
+-				us_device, 
+-				vs_device, 
+-				ws_device, 
+-				qs_device, 
+-				square_device, 
+-				rhs_device, 
+-				forcing_device, 
+-				u_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rho_i_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])us_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])vs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])ws_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])qs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])square_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rhs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -692,14 +692,14 @@ static void compute_rhs_gpu(){
+ #endif	
+ }
+ 
+-__global__ static void compute_rhs_gpu_kernel_1(double* rho_i,
+-		double* us,
+-		double* vs, 
+-		double* ws, 
+-		double* speed, 
+-		double* qs, 
+-		double* square, 
+-		const double* u, 
++__global__ static void compute_rhs_gpu_kernel_1(double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double square[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz){
+@@ -738,15 +738,15 @@ __global__ static void compute_rhs_gpu_kernel_1(double* rho_i,
+ 	speed(i,j,k)=sqrt(c1c2*rho_inv*(u(4,i,j,k)-square_ijk));
+ }
+ 
+-__global__ static void compute_rhs_gpu_kernel_2(const double* rho_i, 
+-		const double* us, 
+-		const double* vs, 
+-		const double* ws, 
+-		const double* qs, 
+-		const double* square, 
+-		double* rhs, 
+-		const double* forcing, 
+-		const double* u, 
++__global__ static void compute_rhs_gpu_kernel_2(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double square[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz){
+@@ -877,7 +877,7 @@ static void error_norm_gpu(double rms[]){
+ 		error_norm_1_blocks_per_grid, 
+ 		error_norm_1_threads_per_block>>>(
+ 				rms_buffer_device, 
+-				u_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -908,7 +908,7 @@ static void error_norm_gpu(double rms[]){
+ }
+ 
+ __global__ static void error_norm_gpu_kernel_1(double* rms,
+-		const double* u,
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -983,7 +983,7 @@ static void exact_rhs_gpu(){
+ 	exact_rhs_gpu_kernel_1<<<
+ 		rhs1_blocks_per_grid,
+ 		rhs1_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1007,7 +1007,7 @@ static void exact_rhs_gpu(){
+ 	exact_rhs_gpu_kernel_2<<<
+ 		rhs2_blocks_per_grid,
+ 		rhs2_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1031,7 +1031,7 @@ static void exact_rhs_gpu(){
+ 	exact_rhs_gpu_kernel_3<<<
+ 		rhs3_blocks_per_grid, 
+ 		rhs3_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1055,7 +1055,7 @@ static void exact_rhs_gpu(){
+ 	exact_rhs_gpu_kernel_4<<<
+ 		rhs4_blocks_per_grid, 
+ 		rhs4_threads_per_block>>>(
+-				forcing_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])forcing_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1064,7 +1064,7 @@ static void exact_rhs_gpu(){
+ #endif
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_1(double* forcing, 
++__global__ static void exact_rhs_gpu_kernel_1(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1093,7 +1093,7 @@ __global__ static void exact_rhs_gpu_kernel_1(double* forcing,
+ 	forcing(4,i,j,k)=0.0;
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_2(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_2(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1173,7 +1173,7 @@ __global__ static void exact_rhs_gpu_kernel_2(double* forcing,
+ 	}
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_3(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_3(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1253,7 +1253,7 @@ __global__ static void exact_rhs_gpu_kernel_3(double* forcing,
+ 	}
+ }
+ 
+-__global__ static void exact_rhs_gpu_kernel_4(double* forcing,
++__global__ static void exact_rhs_gpu_kernel_4(double forcing[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1389,7 +1389,7 @@ static void initialize_gpu(){
+ 	initialize_gpu_kernel<<<
+ 		initialize_blocks_per_grid, 
+ 		initialize_threads_per_block>>>(
+-				u_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])u_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1398,7 +1398,7 @@ static void initialize_gpu(){
+ #endif
+ }
+ 
+-__global__ static void initialize_gpu_kernel(double* u,
++__global__ static void initialize_gpu_kernel(double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -1548,7 +1548,7 @@ static void rhs_norm_gpu(double rms[]){
+ 		rhs_norm_1_blocks_per_grid, 
+ 		rhs_norm_1_threads_per_block>>>(
+ 				rms_buffer_device, 
+-				rhs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rhs_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -1579,7 +1579,7 @@ static void rhs_norm_gpu(double rms[]){
+ }
+ 
+ __global__ static void rhs_norm_gpu_kernel_1(double* rms,
+-		const double* rhs,
++		const double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		const int nx,
+ 		const int ny,
+ 		const int nz){
+@@ -2122,13 +2122,13 @@ static void txinvr_gpu(){
+ 	txinvr_gpu_kernel<<<
+ 		txinvr_blocks_per_grid, 
+ 		txinvr_threads_per_block>>>(
+-				rho_i_device, 
+-				us_device, 
+-				vs_device, 
+-				ws_device, 
+-				speed_device, 
+-				qs_device, 
+-				rhs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rho_i_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])us_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])vs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])ws_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])speed_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])qs_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rhs_device, 
+ 				nx, 
+ 				ny, 
+ 				nz);
+@@ -2137,13 +2137,13 @@ static void txinvr_gpu(){
+ #endif
+ }
+ 
+-__global__ static void txinvr_gpu_kernel(const double* rho_i, 
+-		const double* us, 
+-		const double* vs, 
+-		const double* ws, 
+-		const double* speed, 
+-		const double* qs, 
+-		double* rhs, 
++__global__ static void txinvr_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		const int nx, 
+ 		const int ny, 
+ 		const int nz){
+@@ -2506,10 +2506,10 @@ static void x_solve_gpu(){
+ 	x_solve_gpu_kernel<<<
+ 		x_solve_blocks_per_grid,
+ 		x_solve_threads_per_block>>>(
+-				rho_i_device, 
+-				us_device,
+-				speed_device,
+-				rhs_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rho_i_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])us_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])speed_device,
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rhs_device,
+ 				lhs_device,
+ 				rhs_buffer_device,
+ 				nx, 
+@@ -2520,10 +2520,10 @@ static void x_solve_gpu(){
+ #endif 
+ }
+ 
+-__global__ static void x_solve_gpu_kernel(const double* rho_i, 
+-		const double* us, 
+-		const double* speed, 
+-		double* rhs, 
++__global__ static void x_solve_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		double* lhs, 
+ 		double* rhstmp, 
+ 		const int nx, 
+@@ -2919,10 +2919,10 @@ static void y_solve_gpu(){
+ 	y_solve_gpu_kernel<<<
+ 		y_solve_blocks_per_grid,
+ 		y_solve_threads_per_block>>>(
+-				rho_i_device, 
+-				vs_device, 
+-				speed_device, 
+-				rhs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rho_i_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])vs_device, 
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])speed_device, 
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rhs_device, 
+ 				lhs_device, 
+ 				rhs_buffer_device, 
+ 				nx, 
+@@ -2933,10 +2933,10 @@ static void y_solve_gpu(){
+ #endif 
+ }
+ 
+-__global__ static void y_solve_gpu_kernel(const double* rho_i, 
+-		const double* vs, 
+-		const double* speed, 
+-		double* rhs, 
++__global__ static void y_solve_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE], 
+ 		double* lhs, 
+ 		double* rhstmp, 
+ 		const int nx, 
+@@ -3321,14 +3321,14 @@ static void z_solve_gpu(){
+ 	z_solve_gpu_kernel<<<
+ 		z_solve_blocks_per_grid, 
+ 		z_solve_threads_per_block>>>(
+-				rho_i_device,
+-				us_device,
+-				vs_device,
+-				ws_device,
+-				speed_device,
+-				qs_device,
+-				u_device,
+-				rhs_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rho_i_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])us_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])vs_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])ws_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])speed_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])qs_device,
++				(const double (*)[PROBLEM_SIZE][PROBLEM_SIZE])u_device,
++				(double (*)[PROBLEM_SIZE][PROBLEM_SIZE])rhs_device,
+ 				lhs_device,
+ 				rhs_buffer_device,
+ 				nx,
+@@ -3339,14 +3339,14 @@ static void z_solve_gpu(){
+ #endif 
+ }
+ 
+-__global__ static void z_solve_gpu_kernel(const double* rho_i,
+-		const double* us,
+-		const double* vs,
+-		const double* ws,
+-		const double* speed,
+-		const double* qs,
+-		const double* u,
+-		double* rhs,
++__global__ static void z_solve_gpu_kernel(const double rho_i[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double us[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double vs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double ws[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double speed[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double qs[PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		const double u[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
++		double rhs[5*PROBLEM_SIZE][PROBLEM_SIZE][PROBLEM_SIZE],
+ 		double* lhs,
+ 		double* rhstmp,
+ 		const int nx,
