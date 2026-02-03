@@ -1,0 +1,12 @@
+diff --git a/CUDA/SP/sp.cu b/CUDA/SP/sp.cu
+index b2c3543..4ee2afc 100644
+--- a/CUDA/SP/sp.cu
++++ b/CUDA/SP/sp.cu
+@@ -63,6 +63,7 @@
+ #include "npbparams.hpp"
+ 
+ #define double float
++#define cudaMalloc(ptr, size) cudaMalloc((void**)(ptr), (size))
+ 
+ #define IMAX (PROBLEM_SIZE)
+ #define JMAX (PROBLEM_SIZE)
