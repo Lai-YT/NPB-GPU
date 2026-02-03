@@ -1,0 +1,23 @@
+diff --git a/CUDA/LU/lu.cu b/CUDA/LU/lu.cu
+index 4200e5f..9fb63fb 100644
+--- a/CUDA/LU/lu.cu
++++ b/CUDA/LU/lu.cu
+@@ -3189,12 +3189,12 @@ static void setup_gpu(){
+ 	size_rho_i_device=sizeof(double)*(gridsize);
+ 	size_qs_device=sizeof(double)*(gridsize);
+ 	size_norm_buffer_device=sizeof(double)*(norm_buf_size);
+-	cudaMalloc(&u_device, size_u_device);
+-	cudaMalloc(&rsd_device, size_rsd_device);
+-	cudaMalloc(&frct_device, size_frct_device);
+-	cudaMalloc(&rho_i_device, size_rho_i_device);
+-	cudaMalloc(&qs_device, size_qs_device);
+-	cudaMalloc(&norm_buffer_device, size_norm_buffer_device);
++	cudaMalloc((void**)&u_device, size_u_device);
++	cudaMalloc((void**)&rsd_device, size_rsd_device);
++	cudaMalloc((void**)&frct_device, size_frct_device);
++	cudaMalloc((void**)&rho_i_device, size_rho_i_device);
++	cudaMalloc((void**)&qs_device, size_qs_device);
++	cudaMalloc((void**)&norm_buffer_device, size_norm_buffer_device);
+ }
+ 
+ /*
