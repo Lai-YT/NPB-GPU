@@ -1,0 +1,13 @@
+diff --git a/CUDA/IS/is.cu b/CUDA/IS/is.cu
+index e0020e0..0f00c0d 100644
+--- a/CUDA/IS/is.cu
++++ b/CUDA/IS/is.cu
+@@ -61,6 +61,8 @@
+ #include "../common/npb-CPP.hpp"
+ #include "npbparams.hpp"
+ 
++#define cudaMalloc(ptr, size) cudaMalloc((void**)(ptr), (size))
++
+ #define PROFILING_TOTAL_TIME (0)
+ #define PROFILING_CREATE (1)
+ #define PROFILING_RANK (2)
