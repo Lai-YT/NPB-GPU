@@ -90,9 +90,9 @@ static int m2[MAXLEVEL+1];
 static int m3[MAXLEVEL+1];
 static int ir[MAXLEVEL+1];
 static int debug_vec[8];
-static double u[NR];
-static double v[NV];
-static double r[NR];
+static float u[NR];
+static float v[NV];
+static float r[NR];
 #else
 static int (*nx)=(int*)malloc(sizeof(int)*(MAXLEVEL+1));
 static int (*ny)=(int*)malloc(sizeof(int)*(MAXLEVEL+1));
@@ -102,9 +102,9 @@ static int (*m2)=(int*)malloc(sizeof(int)*(MAXLEVEL+1));
 static int (*m3)=(int*)malloc(sizeof(int)*(MAXLEVEL+1));
 static int (*ir)=(int*)malloc(sizeof(int)*(MAXLEVEL+1));
 static int (*debug_vec)=(int*)malloc(sizeof(int)*(8));
-static double (*u)=(double*)malloc(sizeof(double)*(NR));
-static double (*v)=(double*)malloc(sizeof(double)*(NV));
-static double (*r)=(double*)malloc(sizeof(double)*(NR));
+static float (*u)=(float*)malloc(sizeof(float)*(NR));
+static float (*v)=(float*)malloc(sizeof(float)*(NV));
+static float (*r)=(float*)malloc(sizeof(float)*(NR));
 #endif
 static int is1, is2, is3, ie1, ie2, ie3, lt, lb;
 /* gpu variables */
@@ -113,11 +113,11 @@ size_t size_c_device;
 size_t size_u_device;
 size_t size_v_device;
 size_t size_r_device;
-double* a_device;
-double* c_device;
-double* u_device;
-double* v_device;
-double* r_device;
+float* a_device;
+float* c_device;
+float* u_device;
+float* v_device;
+float* r_device;
 int threads_per_block_on_comm3;
 int threads_per_block_on_interp;
 int threads_per_block_on_norm2u3;
@@ -133,7 +133,7 @@ size_t size_shared_data_on_rprj3;
 int gpu_device_id;
 int total_devices;
 cudaDeviceProp gpu_device_properties;
-extern __shared__ double extern_share_data[];
+extern __shared__ float extern_share_data[];
 
 /* function prototypes */
 static void bubble(double ten[][MM], 
@@ -147,22 +147,22 @@ static void comm3(void* pointer_u,
 		int n2, 
 		int n3, 
 		int kk);
-static void comm3_gpu(double* u_device, 
+static void comm3_gpu(float* u_device, 
 		int n1, 
 		int n2, 
 		int n3, 
 		int kk);
-__global__ void comm3_gpu_kernel_1(double* u, 
+__global__ void comm3_gpu_kernel_1(float* u, 
 		int n1, 
 		int n2, 
 		int n3, 
 		int amount_of_work);
-__global__ void comm3_gpu_kernel_2(double* u,
+__global__ void comm3_gpu_kernel_2(float* u,
 		int n1,
 		int n2,
 		int n3,
 		int amount_of_work);
-__global__ void comm3_gpu_kernel_3(double* u,
+__global__ void comm3_gpu_kernel_3(float* u,
 		int n1, 
 		int n2, 
 		int n3, 
@@ -175,17 +175,17 @@ static void interp(void* pointer_z,
 		int n1, 
 		int n2, int n3, 
 		int k);
-static void interp_gpu(double* z_device, 
+static void interp_gpu(float* z_device, 
 		int mm1, 
 		int mm2, 
 		int mm3, 
-		double* u_device, 
+		float* u_device, 
 		int n1, 
 		int n2, 
 		int n3, 
 		int k);
-__global__ void interp_gpu_kernel(double* z_device,
-		double* u_device,
+__global__ void interp_gpu_kernel(float* z_device,
+		float* u_device,
 		int mm1, 
 		int mm2, 
 		int mm3,
@@ -193,20 +193,20 @@ __global__ void interp_gpu_kernel(double* z_device,
 		int n2, 
 		int n3,
 		int amount_of_work);
-static void mg3P(double u[], 
-		double v[], 
-		double r[], 
-		double a[4], 
-		double c[4], 
+static void mg3P(float u[], 
+		float v[], 
+		float r[], 
+		float a[4], 
+		float c[4], 
 		int n1, 
 		int n2, 
 		int n3, 
 		int k);
-static void mg3P_gpu(double* u_device, 
-		double* v_device, 
-		double* r_device, 
-		double a[4], 
-		double c[4], 
+static void mg3P_gpu(float* u_device, 
+		float* v_device, 
+		float* r_device, 
+		float a[4], 
+		float c[4], 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -220,7 +220,7 @@ static void norm2u3(void* pointer_r,
 		int nx, 
 		int ny, 
 		int nz);
-static void norm2u3_gpu(double* r_device, 
+static void norm2u3_gpu(float* r_device, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -229,7 +229,7 @@ static void norm2u3_gpu(double* r_device,
 		int nx, 
 		int ny, 
 		int nz);
-__global__ void norm2u3_gpu_kernel(double* r,
+__global__ void norm2u3_gpu_kernel(float* r,
 		const int n1, 
 		const int n2, 
 		const int n3,
@@ -244,18 +244,18 @@ static void psinv(void* pointer_r,
 		int n1, 
 		int n2, 
 		int n3, 
-		double c[4], 
+		float c[4], 
 		int k);
-static void psinv_gpu(double* r_device, 
-		double* u_device, 
+static void psinv_gpu(float* r_device, 
+		float* u_device, 
 		int n1, 
 		int n2, 
 		int n3, 
-		double* c_device, 
+		float* c_device, 
 		int k);
-__global__ void psinv_gpu_kernel(double* r,
-		double* u,
-		double* c,
+__global__ void psinv_gpu_kernel(float* r,
+		float* u,
+		float* c,
 		int n1,
 		int n2,
 		int n3,
@@ -273,20 +273,20 @@ static void resid(void* pointer_u,
 		int n1, 
 		int n2, 
 		int n3, 
-		double a[4], 
+		float a[4], 
 		int k);
-static void resid_gpu(double* u_device,
-		double* v_device,
-		double* r_device,
+static void resid_gpu(float* u_device,
+		float* v_device,
+		float* r_device,
 		int n1,
 		int n2,
 		int n3,
-		double* a_device,
+		float* a_device,
 		int k);
-__global__ void resid_gpu_kernel(double* r,
-		double* u,
-		double* v,
-		double* a,
+__global__ void resid_gpu_kernel(float* r,
+		float* u,
+		float* v,
+		float* a,
 		int n1,
 		int n2,
 		int n3,
@@ -300,17 +300,17 @@ static void rprj3(void* pointer_r,
 		int m2j, 
 		int m3j, 
 		int k);
-static void rprj3_gpu(double* r_device, 
+static void rprj3_gpu(float* r_device, 
 		int m1k, 
 		int m2k, 
 		int m3k, 
-		double* s_device, 
+		float* s_device, 
 		int m1j, 
 		int m2j, 
 		int m3j, 
 		int k);
-__global__ void rprj3_gpu_kernel(double* r_device,
-		double* s_device,
+__global__ void rprj3_gpu_kernel(float* r_device,
+		float* s_device,
 		int m1k,
 		int m2k,
 		int m3k,
@@ -325,17 +325,17 @@ static void setup(int* n1,
 		int* n2, 
 		int* n3, 
 		int k);
-static void setup_gpu(double* a, 
-		double* c);
+static void setup_gpu(float* a, 
+		float* c);
 static void showall(void* pointer_z, 
 		int n1, 
 		int n2, 
 		int n3);
-static void zero3_gpu(double* z_device, 
+static void zero3_gpu(float* z_device, 
 		int n1, 
 		int n2, 
 		int n3);
-__global__ void zero3_gpu_kernel(double* z, 
+__global__ void zero3_gpu_kernel(float* z, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -369,7 +369,7 @@ int main(int argc, char** argv){
 	int k, it;
 	double t, mflops;
 
-	double a[4], c[4];
+	float a[4], c[4];
 
 	double rnm2, rnmu, epsilon;
 	int n1, n2, n3, nit;
@@ -507,7 +507,7 @@ int main(int argc, char** argv){
 
 	printf(" Benchmark completed\n");
 
-	epsilon = 1.0e-8;
+	epsilon = 1.53e-2;
 	if(class_npb != 'U'){
 		if(class_npb == 'S'){
 			verify_value = 0.5307707005734e-04;
@@ -689,7 +689,7 @@ static void comm3(void* pointer_u,
 		int n2, 
 		int n3, 
 		int kk){
-	double (*u)[n2][n1] = (double (*)[n2][n1])pointer_u;
+	float (*u)[n2][n1] = (float (*)[n2][n1])pointer_u;
 
 	int i1, i2, i3;
 	/* axis = 1 */
@@ -715,7 +715,7 @@ static void comm3(void* pointer_u,
 	}
 }
 
-static void comm3_gpu(double* u_device, 
+static void comm3_gpu(float* u_device, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -779,7 +779,7 @@ static void comm3_gpu(double* u_device,
 #endif
 }
 
-__global__ void comm3_gpu_kernel_1(double* u, 
+__global__ void comm3_gpu_kernel_1(float* u, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -793,7 +793,7 @@ __global__ void comm3_gpu_kernel_1(double* u,
 	u[i3*n2*n1+i2*n1+n1-1]=u[i3*n2*n1+i2*n1+1];
 }
 
-__global__ void comm3_gpu_kernel_2(double* u,
+__global__ void comm3_gpu_kernel_2(float* u,
 		int n1,
 		int n2,
 		int n3,
@@ -807,7 +807,7 @@ __global__ void comm3_gpu_kernel_2(double* u,
 	u[i3*n2*n1+(n2-1)*n1+i1]=u[i3*n2*n1+1*n1+i1];
 }
 
-__global__ void comm3_gpu_kernel_3(double* u,
+__global__ void comm3_gpu_kernel_3(float* u,
 		int n1, 
 		int n2, 
 		int n3, 
@@ -842,8 +842,8 @@ static void interp(void* pointer_z,
 		int n2, 
 		int n3, 
 		int k){
-	double (*z)[mm2][mm1] = (double (*)[mm2][mm1])pointer_z;
-	double (*u)[n2][n1] = (double (*)[n2][n1])pointer_u;	
+	float (*z)[mm2][mm1] = (float (*)[mm2][mm1])pointer_z;
+	float (*u)[n2][n1] = (float (*)[n2][n1])pointer_u;	
 
 	int i3, i2, i1, d1, d2, d3, t1, t2, t3;
 
@@ -855,7 +855,7 @@ static void interp(void* pointer_z,
 	 * parameter( m=535 )
 	 * --------------------------------------------------------------------
 	 */
-	double z1[M], z2[M], z3[M];
+	float z1[M], z2[M], z3[M];
 
 	if(n1 != 3 && n2 != 3 && n3 != 3){
 		for(i3 = 0; i3 < mm3-1; i3++){
@@ -983,11 +983,11 @@ static void interp(void* pointer_z,
 	}
 }
 
-static void interp_gpu(double* z_device, 
+static void interp_gpu(float* z_device, 
 		int mm1, 
 		int mm2, 
 		int mm3, 
-		double* u_device, 
+		float* u_device, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -1032,8 +1032,8 @@ static void interp_gpu(double* z_device,
 #endif
 }
 
-__global__ void interp_gpu_kernel(double* z_device,
-		double* u_device,
+__global__ void interp_gpu_kernel(float* z_device,
+		float* u_device,
 		int mm1, 
 		int mm2, 
 		int mm3,
@@ -1044,9 +1044,9 @@ __global__ void interp_gpu_kernel(double* z_device,
 	int check=blockIdx.x*blockDim.x+threadIdx.x;
 	if(check>=amount_of_work){return;}
 
-	double* z1 = (double*)(extern_share_data);
-	double* z2 = (double*)(z1+M);
-	double* z3 = (double*)(z2+M);
+	float* z1 = (float*)(extern_share_data);
+	float* z2 = (float*)(z1+M);
+	float* z3 = (float*)(z2+M);
 
 	int i3=blockIdx.y*blockDim.y+threadIdx.y;
 	int i2=blockIdx.x;
@@ -1058,7 +1058,7 @@ __global__ void interp_gpu_kernel(double* z_device,
 
 	__syncthreads();
 	if(i1<mm1-1){
-		double z321=z_device[i3*mm2*mm1+i2*mm1+i1];
+		float z321=z_device[i3*mm2*mm1+i2*mm1+i1];
 		u_device[2*i3*n2*n1+2*i2*n1+2*i1]+=z321;
 		u_device[2*i3*n2*n1+2*i2*n1+2*i1+1]+=0.5*(z_device[i3*mm2*mm1+i2*mm1+i1+1]+z321);
 		u_device[2*i3*n2*n1+(2*i2+1)*n1+2*i1]+=0.5*z1[i1];
@@ -1075,11 +1075,11 @@ __global__ void interp_gpu_kernel(double* z_device,
  * multigrid v-cycle routine
  * --------------------------------------------------------------------
  */
-static void mg3P(double u[], 
-		double v[], 
-		double r[], 
-		double a[4], 
-		double c[4], 
+static void mg3P(float u[], 
+		float v[], 
+		float r[], 
+		float a[4], 
+		float c[4], 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -1132,11 +1132,11 @@ static void mg3P(double u[],
 	psinv(r, u, n1, n2, n3, c, k);
 }
 
-static void mg3P_gpu(double* u_device, 
-		double* v_device, 
-		double* r_device, 
-		double* a_device, 
-		double* c_device, 
+static void mg3P_gpu(float* u_device, 
+		float* v_device, 
+		float* r_device, 
+		float* a_device, 
+		float* c_device, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -1207,7 +1207,7 @@ static void norm2u3(void* pointer_r,
 		int nx, 
 		int ny, 
 		int nz){
-	double (*r)[n2][n1] = (double (*)[n2][n1])pointer_r;
+	float (*r)[n2][n1] = (float (*)[n2][n1])pointer_r;
 
 	double s, a;
 	int i3, i2, i1;
@@ -1217,21 +1217,22 @@ static void norm2u3(void* pointer_r,
 	dn = 1.0*nx*ny*nz;
 
 	s = 0.0;
-	*rnmu = 0.0;
+	double max_rnmu = 0.0;
 	for(i3 = 1; i3 < n3-1; i3++){
 		for(i2 = 1; i2 < n2-1; i2++){
 			for(i1 = 1; i1 < n1-1; i1++){
 				s = s + r[i3][i2][i1] * r[i3][i2][i1];
 				a = fabs(r[i3][i2][i1]);
-				if(a > *rnmu){*rnmu = a;}
+				if(a > max_rnmu){max_rnmu = a;}
 			}
 		}
 	}
 
 	*rnm2 = sqrt(s/dn);
+	*rnmu = max_rnmu;
 }
 
-static void norm2u3_gpu(double* r_device, 
+static void norm2u3_gpu(float* r_device, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -1305,7 +1306,7 @@ static void norm2u3_gpu(double* r_device,
 #endif
 }
 
-__global__ void norm2u3_gpu_kernel(double* r,
+__global__ void norm2u3_gpu_kernel(float* r,
 		const int n1, 
 		const int n2, 
 		const int n3,
@@ -1316,8 +1317,8 @@ __global__ void norm2u3_gpu_kernel(double* r,
 	int check=blockIdx.x*blockDim.x+threadIdx.x;
 	if(check>=amount_of_work){return;}
 
-	double* scratch_sum = (double*)(extern_share_data);
-	double* scratch_max = (double*)(scratch_sum+blockDim.x);
+	float* scratch_sum = (float*)(extern_share_data);
+	float* scratch_max = (float*)(scratch_sum+blockDim.x);
 
 	int i3=blockIdx.y*blockDim.y+threadIdx.y+1;
 	int i2=blockIdx.x+1;
@@ -1397,13 +1398,13 @@ static void psinv(void* pointer_r,
 		int n1, 
 		int n2, 
 		int n3, 
-		double c[4], 
+		float c[4], 
 		int k){
-	double (*r)[n2][n1] = (double (*)[n2][n1])pointer_r;
-	double (*u)[n2][n1] = (double (*)[n2][n1])pointer_u;	
+	float (*r)[n2][n1] = (float (*)[n2][n1])pointer_r;
+	float (*u)[n2][n1] = (float (*)[n2][n1])pointer_u;	
 
 	int i3, i2, i1;
-	double r1[M], r2[M];
+	float r1[M], r2[M];
 
 	for(i3 = 1; i3 < n3-1; i3++){
 		for(i2 = 1; i2 < n2-1; i2++){
@@ -1446,12 +1447,12 @@ static void psinv(void* pointer_r,
 	}
 }
 
-static void psinv_gpu(double* r_device, 
-		double* u_device, 
+static void psinv_gpu(float* r_device, 
+		float* u_device, 
 		int n1, 
 		int n2, 
 		int n3, 
-		double* c_device, 
+		float* c_device, 
 		int k){
 #if defined(PROFILING)
 	timer_start(PROFILING_PSINV);
@@ -1492,9 +1493,9 @@ static void psinv_gpu(double* r_device,
 	comm3_gpu(u_device,n1,n2,n3,k);
 }
 
-__global__ void psinv_gpu_kernel(double* r,
-		double* u,
-		double* c,
+__global__ void psinv_gpu_kernel(float* r,
+		float* u,
+		float* c,
 		int n1,
 		int n2,
 		int n3,
@@ -1502,8 +1503,8 @@ __global__ void psinv_gpu_kernel(double* r,
 	int check=blockIdx.x*blockDim.x+threadIdx.x;
 	if(check>=amount_of_work){return;}
 
-	double* r1 = (double*)(extern_share_data);
-	double* r2 = (double*)(r1+M);
+	float* r1 = (float*)(extern_share_data);
+	float* r2 = (float*)(r1+M);
 
 	int i3=blockIdx.y*blockDim.y+threadIdx.y+1;
 	int i2=blockIdx.x+1;
@@ -1575,14 +1576,14 @@ static void resid(void* pointer_u,
 		int n1, 
 		int n2, 
 		int n3, 
-		double a[4], 
+		float a[4], 
 		int k){
-	double (*u)[n2][n1] = (double (*)[n2][n1])pointer_u;
-	double (*v)[n2][n1] = (double (*)[n2][n1])pointer_v;
-	double (*r)[n2][n1] = (double (*)[n2][n1])pointer_r;	
+	float (*u)[n2][n1] = (float (*)[n2][n1])pointer_u;
+	float (*v)[n2][n1] = (float (*)[n2][n1])pointer_v;
+	float (*r)[n2][n1] = (float (*)[n2][n1])pointer_r;	
 
 	int i3, i2, i1;
-	double u1[M], u2[M];
+	float u1[M], u2[M];
 
 	for(i3 = 1; i3 < n3-1; i3++){
 		for(i2 = 1; i2 < n2-1; i2++){
@@ -1625,13 +1626,13 @@ static void resid(void* pointer_u,
 	}
 }
 
-static void resid_gpu(double* u_device,
-		double* v_device,
-		double* r_device,
+static void resid_gpu(float* u_device,
+		float* v_device,
+		float* r_device,
 		int n1,
 		int n2,
 		int n3,
-		double* a_device,
+		float* a_device,
 		int k){
 #if defined(PROFILING)
 	timer_start(PROFILING_RESID);
@@ -1673,10 +1674,10 @@ static void resid_gpu(double* u_device,
 	comm3_gpu(r_device,n1,n2,n3,k);
 }
 
-__global__ void resid_gpu_kernel(double* u,
-		double* v,
-		double* r,
-		double* a,
+__global__ void resid_gpu_kernel(float* u,
+		float* v,
+		float* r,
+		float* a,
 		int n1,
 		int n2,
 		int n3,
@@ -1684,8 +1685,8 @@ __global__ void resid_gpu_kernel(double* u,
 	int check=blockIdx.x*blockDim.x+threadIdx.x;
 	if(check>=amount_of_work){return;}
 
-	double* u1=(double*)(extern_share_data);
-	double* u2=(double*)(u1+M);
+	float* u1=(float*)(extern_share_data);
+	float* u2=(float*)(u1+M);
 
 	int i3=blockIdx.y*blockDim.y+threadIdx.y+1;
 	int i2=blockIdx.x+1;
@@ -1730,12 +1731,12 @@ static void rprj3(void* pointer_r,
 		int m2j, 
 		int m3j, 
 		int k){
-	double (*r)[m2k][m1k] = (double (*)[m2k][m1k])pointer_r;
-	double (*s)[m2j][m1j] = (double (*)[m2j][m1j])pointer_s;	
+	float (*r)[m2k][m1k] = (float (*)[m2k][m1k])pointer_r;
+	float (*s)[m2j][m1j] = (float (*)[m2j][m1j])pointer_s;	
 
 	int j3, j2, j1, i3, i2, i1, d1, d2, d3, j;
 
-	double x1[M], y1[M], x2, y2;
+	float x1[M], y1[M], x2, y2;
 
 	if(m1k == 3){
 		d1 = 2;
@@ -1790,11 +1791,11 @@ static void rprj3(void* pointer_r,
 	}
 }
 
-static void rprj3_gpu(double* r_device, 
+static void rprj3_gpu(float* r_device, 
 		int m1k, 
 		int m2k, 
 		int m3k, 
-		double* s_device, 
+		float* s_device, 
 		int m1j, 
 		int m2j, 
 		int m3j, 
@@ -1862,8 +1863,8 @@ static void rprj3_gpu(double* r_device,
 	comm3_gpu(s_device,m1j,m2j,m3j,j);
 }
 
-__global__ void rprj3_gpu_kernel(double* r_device,
-		double* s_device,
+__global__ void rprj3_gpu_kernel(float* r_device,
+		float* s_device,
 		int m1k,
 		int m2k,
 		int m3k,
@@ -1878,10 +1879,10 @@ __global__ void rprj3_gpu_kernel(double* r_device,
 	if(check>=amount_of_work){return;}
 
 	int j3,j2,j1,i3,i2,i1;
-	double x2,y2;
+	float x2,y2;
 
-	double* x1 = (double*)(extern_share_data);
-	double* y1 = (double*)(x1+M);
+	float* x1 = (float*)(extern_share_data);
+	float* y1 = (float*)(x1+M);
 
 	j3=blockIdx.y*blockDim.y+threadIdx.y+1;
 	j2=blockIdx.x+1;
@@ -1975,8 +1976,8 @@ static void setup(int* n1,
 	}
 }
 
-static void setup_gpu(double* a, 
-		double* c){
+static void setup_gpu(float* a, 
+		float* c){
 	/*
 	 * struct cudaDeviceProp{
 	 *  char name[256];
@@ -2066,16 +2067,16 @@ static void setup_gpu(double* a,
 		threads_per_block_on_zero3 = gpu_device_properties.warpSize;
 	}	
 
-	size_a_device=sizeof(double)*(4);
-	size_c_device=sizeof(double)*(4);
-	size_u_device=sizeof(double)*(NR);
-	size_v_device=sizeof(double)*(NV);
-	size_r_device=sizeof(double)*(NR);
-	size_shared_data_on_interp=3*M*sizeof(double);
-	size_shared_data_on_norm2u3=2*threads_per_block_on_norm2u3*sizeof(double);
-	size_shared_data_on_psinv=2*M*sizeof(double);
-	size_shared_data_on_resid=2*M*sizeof(double);
-	size_shared_data_on_rprj3=2*M*sizeof(double);
+	size_a_device=sizeof(float)*(4);
+	size_c_device=sizeof(float)*(4);
+	size_u_device=sizeof(float)*(NR);
+	size_v_device=sizeof(float)*(NV);
+	size_r_device=sizeof(float)*(NR);
+	size_shared_data_on_interp=3*M*sizeof(float);
+	size_shared_data_on_norm2u3=2*threads_per_block_on_norm2u3*sizeof(float);
+	size_shared_data_on_psinv=2*M*sizeof(float);
+	size_shared_data_on_resid=2*M*sizeof(float);
+	size_shared_data_on_rprj3=2*M*sizeof(float);
 
 	cudaMalloc(&a_device, size_a_device);
 	cudaMalloc(&c_device, size_c_device);
@@ -2093,7 +2094,7 @@ static void showall(void* pointer_z,
 		int n1, 
 		int n2, 
 		int n3){
-	double (*z)[n2][n1] = (double (*)[n2][n1])pointer_z;
+	float (*z)[n2][n1] = (float (*)[n2][n1])pointer_z;
 
 	int i1,i2,i3;
 	int m1, m2, m3;
@@ -2119,7 +2120,7 @@ static void zero3(void* pointer_z,
 		int n1, 
 		int n2, 
 		int n3){
-	double (*z)[n2][n1] = (double (*)[n2][n1])pointer_z;
+	float (*z)[n2][n1] = (float (*)[n2][n1])pointer_z;
 
 	int i1, i2, i3;
 	for(i3 = 0;i3 < n3; i3++){
@@ -2131,7 +2132,7 @@ static void zero3(void* pointer_z,
 	}
 }
 
-static void zero3_gpu(double* z_device, 
+static void zero3_gpu(float* z_device, 
 		int n1, 
 		int n2, 
 		int n3){
@@ -2154,7 +2155,7 @@ static void zero3_gpu(double* z_device,
 #endif
 }
 
-__global__ void zero3_gpu_kernel(double* z, 
+__global__ void zero3_gpu_kernel(float* z, 
 		int n1, 
 		int n2, 
 		int n3, 
@@ -2163,6 +2164,8 @@ __global__ void zero3_gpu_kernel(double* z,
 	if(thread_id>=(n1*n2*n3)){return;}
 	z[thread_id]=0.0;
 }
+
+void vranlc(int, double*, double, float*);
 
 /*
  * ---------------------------------------------------------------------
@@ -2178,7 +2181,7 @@ static void zran3(void* pointer_z,
 		int nx, 
 		int ny, 
 		int k){
-	double (*z)[n2][n1] = (double (*)[n2][n1])pointer_z;
+	float (*z)[n2][n1] = (float (*)[n2][n1])pointer_z;
 
 	int i0, m0, m1;
 
@@ -2300,4 +2303,45 @@ static void zran3(void* pointer_z,
 		z[jg[1][i][3]][jg[1][i][2]][jg[1][i][1]] = +1.0;
 	}
 	comm3(z, n1, n2, n3, k);
+}
+
+void vranlc(int n, double *x_seed, double a, float y[]){
+	int i;
+	double x,t1,t2,t3,t4,a1,a2,x1,x2,z;
+
+	/*
+	 * ---------------------------------------------------------------------
+	 * break A into two parts such that A = 2^23 * A1 + A2.
+	 * ---------------------------------------------------------------------
+	 */
+	t1 = R23 * a;
+	a1 = (int)t1;
+	a2 = a - T23 * a1;
+	x = *x_seed;
+
+	/*
+	 * ---------------------------------------------------------------------
+	 * generate N results. this loop is not vectorizable.
+	 * ---------------------------------------------------------------------
+	 */
+	for(i=0; i<n; i++){
+		/*
+		 * ---------------------------------------------------------------------
+		 * break X into two parts such that X = 2^23 * X1 + X2, compute
+		 * Z = A1 * X2 + A2 * X1  (mod 2^23), and then
+		 * X = 2^23 * Z + A2 * X2  (mod 2^46).
+		 * ---------------------------------------------------------------------
+		 */
+		t1 = R23 * x;
+		x1 = (int)t1;
+		x2 = x - T23 * x1;
+		t1 = a1 * x2 + a2 * x1;
+		t2 = (int)(R23 * t1);
+		z = t1 - T23 * t2;
+		t3 = T23 * z + a2 * x2;
+		t4 = (int)(R46 * t3);
+		x = t3 - T46 * t4;
+		y[i] = R46 * x;
+	}
+	*x_seed = x;
 }
