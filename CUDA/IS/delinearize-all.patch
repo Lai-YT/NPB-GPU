@@ -1,0 +1,249 @@
+diff --git a/CUDA/IS/is.cu b/CUDA/IS/is.cu
+index e0020e0..48937d7 100644
+--- a/CUDA/IS/is.cu
++++ b/CUDA/IS/is.cu
+@@ -150,6 +150,16 @@
+ #define NUM_KEYS (TOTAL_KEYS)
+ #define SIZE_OF_BUFFERS (NUM_KEYS)
+ 
++/* create_seq layout: derive compile-time constants so kernel can take 2D array */
++#define CREATE_SEQ_THREADS_PER_BLOCK IS_THREADS_PER_BLOCK_ON_CREATE_SEQ
++#define AMOUNT_OF_WORK_ON_CREATE_SEQ (CREATE_SEQ_THREADS_PER_BLOCK * CREATE_SEQ_THREADS_PER_BLOCK)
++#define MQ_CREATE ((NUM_KEYS + AMOUNT_OF_WORK_ON_CREATE_SEQ - 1) / AMOUNT_OF_WORK_ON_CREATE_SEQ)
++
++/* number of columns per row for the 2D view */
++#define KEY_ROW_SIZE (MQ_CREATE)
++/* number of rows (ceil) */
++#define KEY_NROWS ((NUM_KEYS + KEY_ROW_SIZE - 1) / KEY_ROW_SIZE)
++
+ #define MAX_ITERATIONS (10)
+ #define TEST_ARRAY_SIZE (5)
+ 
+@@ -267,7 +277,7 @@ extern __shared__ INT_TYPE extern_share_data[];
+ /* function declarations */
+ static void create_seq_gpu(double seed, 
+ 		double a);
+-__global__ void create_seq_gpu_kernel(INT_TYPE* key_array,
++__global__ void create_seq_gpu_kernel(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		double seed,
+ 		double a,
+ 		INT_TYPE number_of_blocks,
+@@ -278,23 +288,23 @@ __device__ double find_my_seed_device(INT_TYPE kn,
+ 		double s,
+ 		double a);
+ static void full_verify_gpu();
+-__global__ void full_verify_gpu_kernel_1(INT_TYPE* key_array,
+-		INT_TYPE* key_buff2,
++__global__ void full_verify_gpu_kernel_1(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
++		INT_TYPE key_buff2[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work);
+-__global__ void full_verify_gpu_kernel_2(INT_TYPE* key_buff2,
++__global__ void full_verify_gpu_kernel_2(INT_TYPE key_buff2[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE* key_buff_ptr_global,
+-		INT_TYPE* key_array,
++		INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work);
+-__global__ void full_verify_gpu_kernel_3(INT_TYPE* key_array,
++__global__ void full_verify_gpu_kernel_3(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE* global_aux,
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work);
+ __device__ double randlc_device(double* X,
+ 		double* A);
+ static void rank_gpu(INT_TYPE iteration);
+-__global__ void rank_gpu_kernel_1(INT_TYPE* key_array,
++__global__ void rank_gpu_kernel_1(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE* partial_verify_vals,
+ 		INT_TYPE* test_index_array,
+ 		INT_TYPE iteration,
+@@ -304,7 +314,7 @@ __global__ void rank_gpu_kernel_2(INT_TYPE* key_buff1,
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work);
+ __global__ void rank_gpu_kernel_3(INT_TYPE* key_buff_ptr,
+-		INT_TYPE* key_buff_ptr2,
++		INT_TYPE key_buff_ptr2[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work);
+ __global__ void rank_gpu_kernel_4(INT_TYPE* source,
+@@ -507,7 +517,7 @@ int main(int argc, char** argv){
+ 
+ static void create_seq_gpu(double seed, double a){  
+ 	create_seq_gpu_kernel<<<blocks_per_grid_on_create_seq, 
+-		threads_per_block_on_create_seq>>>(key_array_device,
++		threads_per_block_on_create_seq>>>((INT_TYPE (*)[KEY_ROW_SIZE])key_array_device,
+ 				seed,
+ 				a,
+ 				blocks_per_grid_on_create_seq,
+@@ -515,7 +525,7 @@ static void create_seq_gpu(double seed, double a){
+ 	cudaDeviceSynchronize();
+ }
+ 
+-__global__ void create_seq_gpu_kernel(INT_TYPE* key_array,
++__global__ void create_seq_gpu_kernel(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		double seed,
+ 		double a,
+ 		INT_TYPE number_of_blocks,
+@@ -545,7 +555,7 @@ __global__ void create_seq_gpu_kernel(INT_TYPE* key_array,
+ 		x += randlc_device(&s, &an);
+ 		x += randlc_device(&s, &an);
+ 		x += randlc_device(&s, &an);  
+-		key_array[i] = k*x;
++		key_array[i/KEY_ROW_SIZE][i%KEY_ROW_SIZE] = k*x;
+ 	}
+ }
+ 
+@@ -587,17 +597,17 @@ static void full_verify_gpu(){
+ 
+ 	/* full_verify_gpu_kernel_1 */
+ 	full_verify_gpu_kernel_1<<<blocks_per_grid_on_full_verify_1, 
+-		threads_per_block_on_full_verify_1>>>(key_array_device,
+-				key_buff2_device,
++		threads_per_block_on_full_verify_1>>>((INT_TYPE (*)[KEY_ROW_SIZE])key_array_device,
++				(INT_TYPE (*)[KEY_ROW_SIZE])key_buff2_device,
+ 				blocks_per_grid_on_full_verify_1,
+ 				amount_of_work_on_full_verify_1);
+ 	cudaDeviceSynchronize();
+ 
+ 	/* full_verify_gpu_kernel_2 */
+ 	full_verify_gpu_kernel_2<<<blocks_per_grid_on_full_verify_2, 
+-		threads_per_block_on_full_verify_2>>>(key_buff2_device,
++		threads_per_block_on_full_verify_2>>>((INT_TYPE (*)[KEY_ROW_SIZE])key_buff2_device,
+ 				key_buff1_device,
+-				key_array_device,
++				(INT_TYPE (*)[KEY_ROW_SIZE])key_array_device,
+ 				blocks_per_grid_on_full_verify_2,
+ 				amount_of_work_on_full_verify_2);
+ 	cudaDeviceSynchronize();
+@@ -605,7 +615,7 @@ static void full_verify_gpu(){
+ 	/* full_verify_gpu_kernel_3 */
+ 	full_verify_gpu_kernel_3<<<blocks_per_grid_on_full_verify_3, 
+ 		threads_per_block_on_full_verify_3,
+-		size_shared_data_on_full_verify_3>>>(key_array_device,
++		size_shared_data_on_full_verify_3>>>((INT_TYPE (*)[KEY_ROW_SIZE])key_array_device,
+ 				memory_aux_device,
+ 				blocks_per_grid_on_full_verify_3,
+ 				amount_of_work_on_full_verify_3);
+@@ -629,20 +639,21 @@ static void full_verify_gpu(){
+ 	free(memory_aux_host);
+ }
+ 
+-__global__ void full_verify_gpu_kernel_1(INT_TYPE* key_array,
+-		INT_TYPE* key_buff2,
++__global__ void full_verify_gpu_kernel_1(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
++		INT_TYPE key_buff2[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work){
+ 	INT_TYPE i = blockIdx.x*blockDim.x+threadIdx.x;
+-	key_buff2[i] = key_array[i];
++	key_buff2[i/KEY_ROW_SIZE][i%KEY_ROW_SIZE] = key_array[i/KEY_ROW_SIZE][i%KEY_ROW_SIZE];
+ }
+ 
+-__global__ void full_verify_gpu_kernel_2(INT_TYPE* key_buff2,
++__global__ void full_verify_gpu_kernel_2(INT_TYPE key_buff2[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE* key_buff_ptr_global,
+-		INT_TYPE* key_array,
++		INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work){		
+-	INT_TYPE value = key_buff2[blockIdx.x*blockDim.x+threadIdx.x];
++	INT_TYPE idx = blockIdx.x*blockDim.x+threadIdx.x;
++	INT_TYPE value = key_buff2[idx/KEY_ROW_SIZE][idx%KEY_ROW_SIZE];
+ 
+ 	#if CLASS == 'D'
+ 		INT_TYPE index = atomicAdd( (unsigned long long int*) &key_buff_ptr_global[value], (unsigned long long int) -1) -1;
+@@ -650,10 +661,10 @@ __global__ void full_verify_gpu_kernel_2(INT_TYPE* key_buff2,
+ 		INT_TYPE index = atomicAdd(&key_buff_ptr_global[value], -1) -1;
+ 	#endif
+ 
+-	key_array[index] = value;
++	key_array[index/KEY_ROW_SIZE][index%KEY_ROW_SIZE] = value;
+ }
+ 
+-__global__ void full_verify_gpu_kernel_3(INT_TYPE* key_array,
++__global__ void full_verify_gpu_kernel_3(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE* global_aux,
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work){
+@@ -662,8 +673,9 @@ __global__ void full_verify_gpu_kernel_3(INT_TYPE* key_array,
+ 	INT_TYPE i = (blockIdx.x*blockDim.x+threadIdx.x) + 1;
+ 
+ 	if(i<NUM_KEYS){
+-		if(key_array[i-1]>key_array[i]){shared_aux[threadIdx.x]=1;}
+-		else{shared_aux[threadIdx.x]=0;}
++		INT_TYPE prev = key_array[(i-1)/KEY_ROW_SIZE][(i-1)%KEY_ROW_SIZE];
++		INT_TYPE cur = key_array[i/KEY_ROW_SIZE][i%KEY_ROW_SIZE];
++		if(prev>cur){shared_aux[threadIdx.x]=1;} else {shared_aux[threadIdx.x]=0;}
+ 	}else{shared_aux[threadIdx.x]=0;}
+ 
+ 	__syncthreads();
+@@ -725,7 +737,7 @@ __device__ double randlc_device(double* X,
+ static void rank_gpu(INT_TYPE iteration){
+ 	/* rank_gpu_kernel_1 */
+ 	rank_gpu_kernel_1<<<blocks_per_grid_on_rank_1, 
+-		threads_per_block_on_rank_1>>>(key_array_device,
++		threads_per_block_on_rank_1>>>((INT_TYPE (*)[KEY_ROW_SIZE])key_array_device,
+ 				partial_verify_vals_device,
+ 				index_array_device,
+ 				iteration,
+@@ -741,7 +753,7 @@ static void rank_gpu(INT_TYPE iteration){
+ 	/* rank_gpu_kernel_3 */
+ 	rank_gpu_kernel_3<<<blocks_per_grid_on_rank_3, 
+ 		threads_per_block_on_rank_3>>>(key_buff1_device,
+-				key_array_device,
++				(INT_TYPE (*)[KEY_ROW_SIZE])key_array_device,
+ 				blocks_per_grid_on_rank_3,
+ 				amount_of_work_on_rank_3);
+ 
+@@ -781,14 +793,14 @@ static void rank_gpu(INT_TYPE iteration){
+ 				amount_of_work_on_rank_7);
+ }
+ 
+-__global__ void rank_gpu_kernel_1(INT_TYPE* key_array,
++__global__ void rank_gpu_kernel_1(INT_TYPE key_array[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE* partial_verify_vals,
+ 		INT_TYPE* test_index_array,
+ 		INT_TYPE iteration,
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work){
+-	key_array[iteration] = iteration;
+-	key_array[iteration+MAX_ITERATIONS] = MAX_KEY - iteration;
++	key_array[iteration/KEY_ROW_SIZE][iteration%KEY_ROW_SIZE] = iteration;
++	key_array[(iteration+MAX_ITERATIONS)/KEY_ROW_SIZE][(iteration+MAX_ITERATIONS)%KEY_ROW_SIZE] = MAX_KEY - iteration;
+ 	/*
+ 	 * --------------------------------------------------------------------
+ 	 * determine where the partial verify test keys are, 
+@@ -798,7 +810,8 @@ __global__ void rank_gpu_kernel_1(INT_TYPE* key_array,
+ 	 */
+ #pragma unroll
+ 	for(INT_TYPE i=0; i<TEST_ARRAY_SIZE; i++){
+-		partial_verify_vals[i] = key_array[test_index_array[i]];
++		INT_TYPE idx = test_index_array[i];
++		partial_verify_vals[i] = key_array[idx/KEY_ROW_SIZE][idx%KEY_ROW_SIZE];
+ 	}
+ }
+ 
+@@ -809,7 +822,7 @@ __global__ void rank_gpu_kernel_2(INT_TYPE* key_buff1,
+ }
+ 
+ __global__ void rank_gpu_kernel_3(INT_TYPE* key_buff_ptr,
+-		INT_TYPE* key_buff_ptr2,
++		INT_TYPE key_buff_ptr2[KEY_NROWS][KEY_ROW_SIZE],
+ 		INT_TYPE number_of_blocks,
+ 		INT_TYPE amount_of_work){
+ 	/*
+@@ -819,10 +832,11 @@ __global__ void rank_gpu_kernel_3(INT_TYPE* key_buff_ptr,
+ 	 * individual population  
+ 	 * --------------------------------------------------------------------
+ 	 */
++	INT_TYPE idx = blockIdx.x*blockDim.x+threadIdx.x;
+ 	#if CLASS == 'D'
+-		atomicAdd( (unsigned long long int*) &key_buff_ptr[key_buff_ptr2[blockIdx.x*blockDim.x+threadIdx.x]], (unsigned long long int) 1);
++		atomicAdd( (unsigned long long int*) &key_buff_ptr[key_buff_ptr2[idx/KEY_ROW_SIZE][idx%KEY_ROW_SIZE]], (unsigned long long int) 1);
+ 	#else
+-		atomicAdd(&key_buff_ptr[key_buff_ptr2[blockIdx.x*blockDim.x+threadIdx.x]], 1);
++		atomicAdd(&key_buff_ptr[key_buff_ptr2[idx/KEY_ROW_SIZE][idx%KEY_ROW_SIZE]], 1);
+ 	#endif
+ }
+ 
